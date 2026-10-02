@@ -1,0 +1,795 @@
+{
+  "fixtureArrays": {
+    "onnx_backend_add_input_a": [1.764052391052246, 0.40015721321105957, 0.978738009929657, 2.2408931255340576, 1.8675580024719238, -0.9772778749465942, 0.9500884413719177, -0.15135720372200012, -0.10321885347366333, 0.4105985164642334, 0.14404356479644775, 1.4542734622955322, 0.7610377073287964, 0.12167501449584961, 0.44386324286460876, 0.3336743414402008, 1.4940791130065918, -0.2051582634449005, 0.3130677044391632, -0.8540957570075989, -2.5529897212982178, 0.653618574142456, 0.8644362092018127, -0.7421650290489197, 2.269754648208618, -1.4543657302856445, 0.04575851559638977, -0.18718385696411133, 1.5327792167663574, 1.4693588018417358, 0.154947429895401, 0.37816253304481506, -0.8877857327461243, -1.980796456336975, -0.34791216254234314, 0.15634897351264954, 1.2302906513214111, 1.202379822731018, -0.38732680678367615, -0.302302747964859, -1.0485529899597168, -1.420017957687378, -1.7062702178955078, 1.950775384902954, -0.5096521973609924, -0.4380742907524109, -1.2527953386306763, 0.7774903774261475, -1.6138978004455566, -0.21274028718471527, -0.8954665660858154, 0.38690251111984253, -0.5108051300048828, -1.18063223361969, -0.02818222902715206, 0.4283318817615509, 0.06651721894741058, 0.30247190594673157, -0.6343221068382263, -0.3627411723136902]
+  },
+  "cases": [
+    {
+      "name": "vector_19",
+      "inputs": {
+        "a": { "dtype": "float32", "shape": [19], "data": { "kind": "fillFloat32", "sinStep": 0.13, "cosStep": 0.29 } },
+        "b": { "dtype": "float32", "shape": [19], "data": { "kind": "fillFloat32", "sinStep": 0.31, "cosStep": 0.07 } }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [19], "tolerance": 0.000001 } }
+    },
+    {
+      "name": "f32_subnormal_identity_and_cancellation_gpu_gap",
+      "skipGpu": {
+        "category": "permanent",
+        "reason": "Portable WGSL floating-point semantics do not guarantee preservation of the subnormal values required by this fixture. Backend evidence: Metal flushes float32 subnormals to zero; the preserved-subnormal lanes cannot be reproduced on GPU."
+      },
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_float",
+        "notes": "Finite subnormal addends are valid float32 values; zero-add identity and exact opposite cancellation should not flush unrelated lanes."
+      },
+      "inputs": {
+        "a": { "dtype": "float32", "shape": [4], "data": { "kind": "values", "values": [1e-40, -1e-40, 0.0, 1e-39] } },
+        "b": { "dtype": "float32", "shape": [4], "data": { "kind": "values", "values": [0.0, 0.0, 1e-40, -1e-39] } }
+      },
+      "outputs": {
+        "c": {
+          "dtype": "float32",
+          "shape": [4],
+          "tolerance": 0,
+          "data": { "kind": "values", "values": [1e-40, -1e-40, 1e-40, 0.0] }
+        }
+      }
+    },
+    {
+      "name": "f32_subnormal_identity_and_cancellation_scalar_gpu_gap",
+      "skipGpu": {
+        "category": "permanent",
+        "reason": "Portable WGSL floating-point semantics do not guarantee preservation of the subnormal values required by this fixture. Backend evidence: Metal flushes float32 subnormals to zero; the preserved-subnormal lanes cannot be reproduced on GPU."
+      },
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_float",
+        "notes": "On an unaligned scalar path, addition by zero must preserve finite subnormal values while exact opposites cancel."
+      },
+      "inputs": {
+        "a": { "dtype": "float32", "shape": [3], "data": { "kind": "values", "values": [1e-40, -1e-40, 1e-39] } },
+        "b": { "dtype": "float32", "shape": [3], "data": { "kind": "values", "values": [0.0, 0.0, -1e-39] } }
+      },
+      "outputs": {
+        "c": {
+          "dtype": "float32",
+          "shape": [3],
+          "tolerance": 0,
+          "data": { "kind": "values", "values": [1e-40, -1e-40, 0.0] }
+        }
+      }
+    },
+    {
+      "name": "float16_vec4_same_shape",
+      "inputs": {
+        "a": {
+          "dtype": "float16",
+          "shape": [8],
+          "data": { "kind": "values", "values": [1.0, -2.0, 3.5, -4.0, 0.25, 10.0, -100.0, 0.001] }
+        },
+        "b": {
+          "dtype": "float16",
+          "shape": [8],
+          "data": { "kind": "values", "values": [0.5, 2.0, -1.5, 4.0, 0.75, -5.0, 100.0, -0.001] }
+        }
+      },
+      "outputs": { "c": { "dtype": "float16", "shape": [8], "tolerance": 0.001 } }
+    },
+    {
+      "name": "scalar_rhs_broadcast",
+      "inputs": {
+        "a": { "dtype": "float32", "shape": [17], "data": { "kind": "fillFloat32", "sinStep": 0.13, "cosStep": 0.29 } },
+        "b": { "dtype": "float32", "shape": [1], "data": { "kind": "values", "values": [1.25] } }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [17], "tolerance": 0.000001 } }
+    },
+    {
+      "name": "row_vector_rank4_broadcast",
+      "inputs": {
+        "a": {
+          "dtype": "float32",
+          "shape": [2, 3, 4, 5],
+          "data": { "kind": "fillFloat32", "sinStep": 0.07, "cosStep": 0.19 }
+        },
+        "b": {
+          "dtype": "float32",
+          "shape": [1, 1, 1, 5],
+          "data": { "kind": "fillFloat32", "sinStep": 0.29, "cosStep": 0.11, "scale": 0.2 }
+        }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [2, 3, 4, 5], "tolerance": 0.000001 } }
+    },
+    {
+      "name": "rank7_alternating_broadcast",
+      "inputs": {
+        "a": {
+          "dtype": "float32",
+          "shape": [2, 1, 3, 1, 2, 1, 2],
+          "data": { "kind": "fillFloat32", "sinStep": 0.05, "cosStep": 0.17 }
+        },
+        "b": {
+          "dtype": "float32",
+          "shape": [1, 4, 1, 5, 1, 3, 1],
+          "data": { "kind": "fillFloat32", "sinStep": 0.23, "cosStep": 0.11, "scale": 0.4 }
+        }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [2, 4, 3, 5, 2, 3, 2], "tolerance": 0.000001 } }
+    },
+    {
+      "name": "true_scalar_lhs_broadcast",
+      "inputs": {
+        "a": { "dtype": "float32", "shape": [], "data": { "kind": "values", "values": [1.25] } },
+        "b": {
+          "dtype": "float32",
+          "shape": [2, 3],
+          "data": { "kind": "values", "values": [0.0, 1.0, -2.0, 3.5, 4.0, -5.0] }
+        }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [2, 3], "tolerance": 0.000001 } }
+    },
+    {
+      "name": "rank0_scalar_scalar_output",
+      "inputs": {
+        "a": { "dtype": "float32", "shape": [], "data": { "kind": "values", "values": [-1.25] } },
+        "b": { "dtype": "float32", "shape": [], "data": { "kind": "values", "values": [3.5] } }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [], "tolerance": 0.000001 } }
+    },
+    {
+      "name": "ort_broadcast_scalar_lhs_to_length1",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_Broadcast_0x1"
+      },
+      "inputs": {
+        "a": { "dtype": "float32", "shape": [], "data": { "kind": "values", "values": [10.0] } },
+        "b": { "dtype": "float32", "shape": [1], "data": { "kind": "values", "values": [2.0] } }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [1], "tolerance": 0 } }
+    },
+    {
+      "name": "ort_broadcast_scalar_rhs_to_length1",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_Broadcast_1x0"
+      },
+      "inputs": {
+        "a": { "dtype": "float32", "shape": [1], "data": { "kind": "values", "values": [10.0] } },
+        "b": { "dtype": "float32", "shape": [], "data": { "kind": "values", "values": [2.0] } }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [1], "tolerance": 0 } }
+    },
+    {
+      "name": "ort_broadcast_length1_length1",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_Broadcast_1x1"
+      },
+      "inputs": {
+        "a": { "dtype": "float32", "shape": [1], "data": { "kind": "values", "values": [10.0] } },
+        "b": { "dtype": "float32", "shape": [1], "data": { "kind": "values", "values": [2.0] } }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [1], "tolerance": 0 } }
+    },
+    {
+      "name": "ort_broadcast_3x2_3x1",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_Broadcast_3x2_3x1"
+      },
+      "inputs": {
+        "a": {
+          "dtype": "float32",
+          "shape": [3, 2],
+          "data": { "kind": "values", "values": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }
+        },
+        "b": { "dtype": "float32", "shape": [3, 1], "data": { "kind": "values", "values": [1.0, 2.0, 3.0] } }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [3, 2], "tolerance": 0 } }
+    },
+    {
+      "name": "ort_broadcast_2x2x2_1x2x2",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_Broadcast_2x2x2_1x2x2"
+      },
+      "inputs": {
+        "a": {
+          "dtype": "float32",
+          "shape": [2, 2, 2],
+          "data": { "kind": "values", "values": [101.0, 102.0, 103.0, 104.0, 201.0, 202.0, 203.0, 204.0] }
+        },
+        "b": {
+          "dtype": "float32",
+          "shape": [1, 2, 2],
+          "data": { "kind": "values", "values": [10.0, 20.0, 30.0, 40.0] }
+        }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [2, 2, 2], "tolerance": 0 } }
+    },
+    {
+      "name": "ort_broadcast_2x1x1_3x4",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_Broadcast_2x1x1_3x4"
+      },
+      "inputs": {
+        "a": { "dtype": "float32", "shape": [2, 1, 1], "data": { "kind": "values", "values": [100.0, 200.0] } },
+        "b": {
+          "dtype": "float32",
+          "shape": [3, 4],
+          "data": {
+            "kind": "values",
+            "values": [11.0, 12.0, 13.0, 14.0, 21.0, 22.0, 23.0, 24.0, 31.0, 32.0, 33.0, 34.0]
+          }
+        }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [2, 3, 4], "tolerance": 0 } }
+    },
+    {
+      "name": "int32_exact_above_float24",
+      "inputs": {
+        "a": {
+          "dtype": "int32",
+          "shape": [4],
+          "data": { "kind": "values", "values": [16777217, -16777217, 123456789, -123456789] }
+        },
+        "b": { "dtype": "int32", "shape": [4], "data": { "kind": "values", "values": [2, -2, 10, -10] } }
+      },
+      "outputs": { "c": { "dtype": "int32", "shape": [4] } }
+    },
+    {
+      "name": "ort_float_3x3",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_float"
+      },
+      "inputs": {
+        "a": {
+          "dtype": "float32",
+          "shape": [3, 3],
+          "data": { "kind": "values", "values": [1.0, 2.0, -1.0, 0.0, 1.5, -100.0, -5.4, 9.3, -10000.0] }
+        },
+        "b": {
+          "dtype": "float32",
+          "shape": [3, 3],
+          "data": { "kind": "values", "values": [-1.0, 4.4, 432.3, 0.0, 3.5, 64.0, -5.4, 9.3, 10000.0] }
+        }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [3, 3], "tolerance": 0.000001 } }
+    },
+    {
+      "name": "ort_int8_vector",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_int8"
+      },
+      "inputs": {
+        "a": { "dtype": "int8", "shape": [3], "data": { "kind": "values", "values": [1, -2, 3] } },
+        "b": { "dtype": "int8", "shape": [3], "data": { "kind": "values", "values": [4, 5, 6] } }
+      },
+      "outputs": { "c": { "dtype": "int8", "shape": [3], "tolerance": 0 } }
+    },
+    {
+      "name": "ort_int8_overflow_wrap",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_int8",
+        "notes": "Signed overflow must wrap to the logical int8 width."
+      },
+      "inputs": {
+        "a": { "dtype": "int8", "shape": [3], "data": { "kind": "values", "values": [127, -128, 100] } },
+        "b": { "dtype": "int8", "shape": [3], "data": { "kind": "values", "values": [1, -1, 30] } }
+      },
+      "outputs": { "c": { "dtype": "int8", "shape": [3], "tolerance": 0 } }
+    },
+    {
+      "name": "ort_int32_vector",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_int32"
+      },
+      "inputs": {
+        "a": { "dtype": "int32", "shape": [3], "data": { "kind": "values", "values": [1, 2, 3] } },
+        "b": { "dtype": "int32", "shape": [3], "data": { "kind": "values", "values": [4, 5, 6] } }
+      },
+      "outputs": { "c": { "dtype": "int32", "shape": [3], "tolerance": 0 } }
+    },
+    {
+      "name": "ort_uint8_vector",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_uint8"
+      },
+      "inputs": {
+        "a": { "dtype": "uint8", "shape": [3], "data": { "kind": "values", "values": [1, 2, 3] } },
+        "b": { "dtype": "uint8", "shape": [3], "data": { "kind": "values", "values": [4, 5, 6] } }
+      },
+      "outputs": { "c": { "dtype": "uint8", "shape": [3], "tolerance": 0 } }
+    },
+    {
+      "name": "ort_uint8_overflow_wrap",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_uint8",
+        "notes": "Unsigned overflow must wrap to the logical uint8 width."
+      },
+      "inputs": {
+        "a": { "dtype": "uint8", "shape": [3], "data": { "kind": "values", "values": [255, 0, 200] } },
+        "b": { "dtype": "uint8", "shape": [3], "data": { "kind": "values", "values": [1, 255, 100] } }
+      },
+      "outputs": { "c": { "dtype": "uint8", "shape": [3], "tolerance": 0 } }
+    },
+    {
+      "name": "ort_uint32_vector",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_uint32"
+      },
+      "inputs": {
+        "a": { "dtype": "uint32", "shape": [3], "data": { "kind": "values", "values": [1, 2, 3] } },
+        "b": { "dtype": "uint32", "shape": [3], "data": { "kind": "values", "values": [4, 5, 6] } }
+      },
+      "outputs": { "c": { "dtype": "uint32", "shape": [3], "tolerance": 0 } }
+    },
+    {
+      "name": "ort_broadcast_axis_3x3_3x1",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_Broadcast_Axis"
+      },
+      "inputs": {
+        "a": {
+          "dtype": "float32",
+          "shape": [3, 3],
+          "data": { "kind": "values", "values": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0] }
+        },
+        "b": { "dtype": "float32", "shape": [3, 1], "data": { "kind": "values", "values": [3.0, 2.0, 1.0] } }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [3, 3], "tolerance": 0.000001 } }
+    },
+    {
+      "name": "ort_broadcast_multidirectional_ab",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_Broadcast_MultidirectionalAB"
+      },
+      "inputs": {
+        "a": { "dtype": "float32", "shape": [3, 1], "data": { "kind": "values", "values": [3.0, 2.0, 1.0] } },
+        "b": { "dtype": "float32", "shape": [3], "data": { "kind": "values", "values": [1.0, 2.0, 3.0] } }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [3, 3], "tolerance": 0.000001 } }
+    },
+    {
+      "name": "ort_broadcast_multidirectional_ba",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_Broadcast_MultidirectionalBA"
+      },
+      "inputs": {
+        "a": { "dtype": "float32", "shape": [3], "data": { "kind": "values", "values": [1.0, 2.0, 3.0] } },
+        "b": { "dtype": "float32", "shape": [3, 1], "data": { "kind": "values", "values": [3.0, 2.0, 1.0] } }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [3, 3], "tolerance": 0.000001 } }
+    },
+    {
+      "name": "ort_broadcast_scalar_scalar",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_Broadcast_0x0"
+      },
+      "inputs": {
+        "a": { "dtype": "float32", "shape": [], "data": { "kind": "values", "values": [10.0] } },
+        "b": { "dtype": "float32", "shape": [], "data": { "kind": "values", "values": [2.0] } }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [], "tolerance": 0.000001 } }
+    },
+    {
+      "name": "ort_broadcast_2x1x4_1x3x1",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_Broadcast_2x1x4_1x3x1"
+      },
+      "inputs": {
+        "a": {
+          "dtype": "float32",
+          "shape": [2, 1, 4],
+          "data": { "kind": "values", "values": [101.0, 102.0, 103.0, 104.0, 201.0, 202.0, 203.0, 204.0] }
+        },
+        "b": { "dtype": "float32", "shape": [1, 3, 1], "data": { "kind": "values", "values": [10.0, 20.0, 30.0] } }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [2, 3, 4], "tolerance": 0.000001 } }
+    },
+    {
+      "name": "ort_dim_zero_equal_rank",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.DimWithZeroHandling",
+        "notes": "Float32 projection of ORT's equal-rank zero-dimension Add broadcast case."
+      },
+      "inputs": {
+        "a": { "dtype": "float32", "shape": [3, 1], "data": { "kind": "values", "values": [1.0, 2.0, 3.0] } },
+        "b": { "dtype": "float32", "shape": [3, 0], "data": { "kind": "values", "values": [] } }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [3, 0], "tolerance": 0 } }
+    },
+    {
+      "name": "ort_dim_zero_smaller_rank",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.DimWithZeroHandling",
+        "notes": "Float32 projection of ORT's smaller-rank zero-dimension Add broadcast case."
+      },
+      "inputs": {
+        "a": { "dtype": "float32", "shape": [2, 1, 2], "data": { "kind": "values", "values": [1.0, 2.0, 3.0, 4.0] } },
+        "b": { "dtype": "float32", "shape": [0, 2], "data": { "kind": "values", "values": [] } }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [2, 0, 2], "tolerance": 0 } }
+    },
+    {
+      "name": "ort_dim_zero_larger_rank",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.DimWithZeroHandling",
+        "notes": "Float32 projection of ORT's larger-rank zero-dimension Add broadcast case."
+      },
+      "inputs": {
+        "a": { "dtype": "float32", "shape": [0, 2, 2], "data": { "kind": "values", "values": [] } },
+        "b": { "dtype": "float32", "shape": [1, 2], "data": { "kind": "values", "values": [1.0, 2.0] } }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [0, 2, 2], "tolerance": 0 } }
+    },
+    {
+      "name": "ort_dim_zero_scalar_broadcast",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.DimWithZeroHandling",
+        "notes": "Float32 projection of ORT's scalar-to-zero-dimension Add broadcast case."
+      },
+      "inputs": {
+        "a": { "dtype": "float32", "shape": [], "data": { "kind": "values", "values": [1.0] } },
+        "b": { "dtype": "float32", "shape": [0], "data": { "kind": "values", "values": [] } }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [0], "tolerance": 0 } }
+    },
+    {
+      "name": "onnx_backend_add_bcast",
+      "provenance": { "source": "cmake/external/onnx/onnx/backend/test/data/node/test_add_bcast" },
+      "inputs": {
+        "a": {
+          "dtype": "float32",
+          "shape": [3, 4, 5],
+          "data": { "kind": "values", "values": { "$ref": "#/fixtureArrays/onnx_backend_add_input_a" } }
+        },
+        "b": {
+          "dtype": "float32",
+          "shape": [5],
+          "data": {
+            "kind": "values",
+            "values": [-0.6724604368209839, -0.35955315828323364, -0.8131462931632996, -1.7262825965881348, 0.17742614448070526]
+          }
+        }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [3, 4, 5], "tolerance": 0 } }
+    },
+    {
+      "name": "onnx_backend_add",
+      "provenance": { "source": "cmake/external/onnx/onnx/backend/test/data/node/test_add", "test": "test_add" },
+      "inputs": {
+        "a": {
+          "dtype": "float32",
+          "shape": [3, 4, 5],
+          "data": { "kind": "values", "values": { "$ref": "#/fixtureArrays/onnx_backend_add_input_a" } }
+        },
+        "b": {
+          "dtype": "float32",
+          "shape": [3, 4, 5],
+          "data": {
+            "kind": "values",
+            "values": [-0.6724604368209839, -0.35955315828323364, -0.8131462931632996, -1.7262825965881348, 0.17742614448070526, -0.4017809331417084, -1.630198359489441, 0.46278226375579834, -0.9072983860969543, 0.05194539576768875, 0.7290905714035034, 0.12898291647434235, 1.1394007205963135, -1.234825849533081, 0.4023416340351105, -0.6848101019859314, -0.8707971572875977, -0.5788496732711792, -0.3115525245666504, 0.056165341287851334, -1.1651498079299927, 0.9008265137672424, 0.4656624495983124, -1.5362436771392822, 1.4882521629333496, 1.895889163017273, 1.1787796020507812, -0.1799248307943344, -1.0707526206970215, 1.0544517040252686, -0.4031769335269928, 1.222445011138916, 0.2082749754190445, 0.9766390323638916, 0.3563663959503174, 0.7065731883049011, 0.01050002034753561, 1.7858705520629883, 0.12691208720207214, 0.4019893705844879, 1.8831506967544556, -1.3477590084075928, -1.2704850435256958, 0.969396710395813, -1.1731233596801758, 1.9436211585998535, -0.4136189818382263, -0.747454822063446, 1.922942042350769, 1.4805147647857666, 1.8675589561462402, 0.9060446619987488, -0.8612256646156311, 1.910064935684204, -0.26800337433815, 0.8024563789367676, 0.9472519755363464, -0.15501008927822113, 0.6140793561935425, 0.922206699848175]
+          }
+        }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [3, 4, 5], "tolerance": 0.000001 } }
+    },
+    {
+      "name": "onnx_backend_add_int8",
+      "provenance": {
+        "source": "cmake/external/onnx/onnx/backend/test/data/node/test_add_int8",
+        "test": "test_add_int8"
+      },
+      "inputs": {
+        "a": {
+          "dtype": "int8",
+          "shape": [3, 4, 5],
+          "data": {
+            "kind": "values",
+            "values": [0, 8, 11, 8, 22, 3, 11, 20, 17, 10, 4, 22, 22, 22, 0, 11, 15, 20, 5, 21, 20, 23, 2, 6, 22, 7, 15, 2, 8, 9, 2, 3, 9, 22, 0, 2, 19, 15, 21, 4, 22, 10, 23, 10, 18, 21, 3, 15, 7, 19, 17, 23, 14, 4, 12, 20, 20, 12, 14, 21]
+          }
+        },
+        "b": {
+          "dtype": "int8",
+          "shape": [3, 4, 5],
+          "data": {
+            "kind": "values",
+            "values": [22, 16, 17, 3, 21, 3, 3, 10, 8, 7, 3, 1, 8, 9, 13, 20, 17, 9, 8, 10, 9, 17, 10, 18, 23, 15, 3, 20, 14, 15, 10, 11, 2, 18, 23, 19, 12, 12, 11, 3, 7, 17, 7, 9, 1, 4, 10, 13, 21, 14, 17, 13, 17, 2, 7, 0, 17, 3, 7, 5]
+          }
+        }
+      },
+      "outputs": { "c": { "dtype": "int8", "shape": [3, 4, 5], "tolerance": 0 } }
+    },
+    {
+      "name": "onnx_backend_add_uint8",
+      "provenance": {
+        "source": "cmake/external/onnx/onnx/backend/test/data/node/test_add_uint8",
+        "test": "test_add_uint8"
+      },
+      "inputs": {
+        "a": {
+          "dtype": "uint8",
+          "shape": [3, 4, 5],
+          "data": {
+            "kind": "values",
+            "values": [23, 21, 13, 9, 1, 9, 14, 7, 11, 12, 5, 17, 0, 22, 22, 9, 6, 23, 16, 0, 15, 6, 23, 22, 20, 9, 16, 4, 11, 8, 10, 9, 3, 4, 0, 0, 3, 2, 9, 5, 14, 20, 5, 2, 20, 15, 1, 3, 4, 12, 17, 19, 5, 8, 7, 8, 16, 10, 2, 3]
+          }
+        },
+        "b": {
+          "dtype": "uint8",
+          "shape": [3, 4, 5],
+          "data": {
+            "kind": "values",
+            "values": [19, 22, 12, 19, 23, 20, 14, 10, 11, 5, 23, 20, 4, 1, 0, 0, 3, 0, 19, 8, 6, 8, 18, 22, 15, 7, 6, 6, 23, 4, 10, 12, 13, 12, 12, 12, 5, 2, 17, 22, 5, 15, 20, 12, 14, 20, 7, 10, 19, 23, 11, 4, 20, 0, 15, 11, 10, 0, 2, 11]
+          }
+        }
+      },
+      "outputs": { "c": { "dtype": "uint8", "shape": [3, 4, 5], "tolerance": 0 } }
+    },
+    {
+      "name": "onnx_backend_add_uint32",
+      "provenance": {
+        "source": "cmake/external/onnx/onnx/backend/test/data/node/test_add_uint32",
+        "test": "test_add_uint32"
+      },
+      "inputs": {
+        "a": {
+          "dtype": "uint32",
+          "shape": [3, 4, 5],
+          "data": {
+            "kind": "values",
+            "values": [17, 7, 20, 2, 16, 18, 13, 23, 4, 4, 12, 17, 23, 22, 20, 1, 5, 23, 1, 19, 21, 23, 19, 22, 22, 7, 9, 17, 9, 22, 0, 19, 4, 17, 20, 21, 16, 3, 10, 1, 20, 4, 4, 16, 16, 15, 10, 13, 8, 11, 20, 6, 9, 15, 3, 19, 12, 18, 17, 10]
+          }
+        },
+        "b": {
+          "dtype": "uint32",
+          "shape": [3, 4, 5],
+          "data": {
+            "kind": "values",
+            "values": [2, 1, 11, 3, 12, 4, 1, 17, 0, 7, 4, 3, 5, 6, 3, 2, 8, 1, 4, 0, 13, 19, 9, 21, 5, 1, 7, 8, 22, 20, 7, 3, 21, 12, 3, 6, 20, 7, 19, 0, 5, 11, 9, 19, 7, 21, 5, 8, 11, 14, 0, 8, 19, 6, 10, 19, 2, 23, 0, 19]
+          }
+        }
+      },
+      "outputs": { "c": { "dtype": "uint32", "shape": [3, 4, 5], "tolerance": 0 } }
+    },
+    {
+      "name": "ort_int16_basic_gpu_gap",
+      "skipGpu": {
+        "category": "todo",
+        "reason": "The widened-i32 Add path does not yet restore signed 16-bit wraparound after overflow; enable int16 only with explicit narrowing and overflow fixtures."
+      },
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_int16"
+      },
+      "inputs": {
+        "a": { "dtype": "int16", "shape": [3], "data": { "kind": "values", "values": [1, -2, 3] } },
+        "b": { "dtype": "int16", "shape": [3], "data": { "kind": "values", "values": [4, 5, 6] } }
+      },
+      "outputs": { "c": { "dtype": "int16", "shape": [3], "tolerance": 0 } }
+    },
+    {
+      "name": "broadcast_vec4_biasadd_row",
+      "inputs": {
+        "a": {
+          "dtype": "float32",
+          "shape": [3, 8],
+          "data": { "kind": "fillFloat32", "sinStep": 0.13, "cosStep": 0.29 }
+        },
+        "b": { "dtype": "float32", "shape": [8], "data": { "kind": "fillFloat32", "sinStep": 0.07, "cosStep": 0.19 } }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [3, 8], "tolerance": 0.00001 } }
+    },
+    {
+      "name": "broadcast_vec4_channelscale_inner",
+      "inputs": {
+        "a": {
+          "dtype": "float32",
+          "shape": [1, 3, 2, 8],
+          "data": { "kind": "fillFloat32", "sinStep": 0.11, "cosStep": 0.23 }
+        },
+        "b": {
+          "dtype": "float32",
+          "shape": [1, 3, 1, 1],
+          "data": { "kind": "fillFloat32", "sinStep": 0.05, "cosStep": 0.17 }
+        }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [1, 3, 2, 8], "tolerance": 0.00001 } }
+    },
+    {
+      "name": "broadcast_vec4_scalar_operand",
+      "inputs": {
+        "a": {
+          "dtype": "float32",
+          "shape": [2, 8],
+          "data": { "kind": "fillFloat32", "sinStep": 0.17, "cosStep": 0.31 }
+        },
+        "b": { "dtype": "float32", "shape": [1], "data": { "kind": "values", "values": [2.5] } }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [2, 8], "tolerance": 0.00001 } }
+    },
+    {
+      "name": "broadcast_vec4_f16_biasadd",
+      "inputs": {
+        "a": {
+          "dtype": "float16",
+          "shape": [3, 8],
+          "data": { "kind": "fillFloat32", "sinStep": 0.13, "cosStep": 0.29 }
+        },
+        "b": { "dtype": "float16", "shape": [8], "data": { "kind": "fillFloat32", "sinStep": 0.07, "cosStep": 0.19 } }
+      },
+      "outputs": { "c": { "dtype": "float16", "shape": [3, 8], "tolerance": 0.01 } }
+    },
+    {
+      "name": "broadcast_vec4_2d_fold_boundary",
+      "inputs": {
+        "a": {
+          "dtype": "float32",
+          "shape": [65537, 4],
+          "data": { "kind": "fillFloat32", "sinStep": 0.01, "cosStep": 0.02, "scale": 0.5 }
+        },
+        "b": {
+          "dtype": "float32",
+          "shape": [65537, 4],
+          "data": { "kind": "fillFloat32", "sinStep": 0.03, "cosStep": 0.05, "scale": 0.5 }
+        }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [65537, 4], "tolerance": 0.000001 } }
+    },
+    {
+      "name": "broadcast_vec4_rank_mismatch_outer_broadcast",
+      "inputs": {
+        "a": {
+          "dtype": "int32",
+          "shape": [3, 4],
+          "data": { "kind": "values", "values": [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200] }
+        },
+        "b": {
+          "dtype": "int32",
+          "shape": [4, 3, 4],
+          "data": {
+            "kind": "values",
+            "values": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48]
+          }
+        }
+      },
+      "outputs": { "c": { "dtype": "int32", "shape": [4, 3, 4], "tolerance": 0 } }
+    },
+    {
+      "name": "f16_result_overflows_to_inf",
+      "inputs": {
+        "a": {
+          "dtype": "float16",
+          "shape": [4],
+          "data": { "kind": "values", "values": [60000.0, -60000.0, 32768.0, 0.0] }
+        },
+        "b": {
+          "dtype": "float16",
+          "shape": [4],
+          "data": { "kind": "values", "values": [10000.0, -10000.0, 32768.0, 65504.0] }
+        }
+      },
+      "outputs": { "c": { "dtype": "float16", "shape": [4], "tolerance": 0, "allowNaN": false } }
+    },
+    {
+      "name": "int8_broadcast_vec4_wrap_splat",
+      "inputs": {
+        "a": {
+          "dtype": "int8",
+          "shape": [2, 8],
+          "data": {
+            "kind": "values",
+            "values": [120, 121, 122, 123, 124, 125, 126, 127, -128, -127, -126, -125, -124, -123, -122, -121]
+          }
+        },
+        "b": { "dtype": "int8", "shape": [2, 1], "data": { "kind": "values", "values": [10, -10] } }
+      },
+      "outputs": {
+        "c": {
+          "dtype": "int8",
+          "shape": [2, 8],
+          "tolerance": 0,
+          "data": {
+            "kind": "values",
+            "values": [-126, -125, -124, -123, -122, -121, -120, -119, 118, 119, 120, 121, 122, 123, 124, 125]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar_b_vec4_route",
+      "provenance": {
+        "notes": "One scalar operand broadcasts across a vec4-aligned output; the other operand already matches the output shape."
+      },
+      "inputs": {
+        "a": {
+          "dtype": "float32",
+          "shape": [2, 8],
+          "data": { "kind": "fillFloat32", "sinStep": 0.17, "cosStep": 0.23, "scale": 1.5 }
+        },
+        "b": {
+          "dtype": "float32",
+          "shape": [1],
+          "data": { "kind": "fillFloat32", "sinStep": 0.31, "cosStep": 0.11, "scale": 1.5 }
+        }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [2, 8], "tolerance": 0.000001 } }
+    },
+    {
+      "name": "scalar_a_vec4_route",
+      "provenance": {
+        "notes": "One scalar operand broadcasts across a vec4-aligned output; the other operand already matches the output shape."
+      },
+      "inputs": {
+        "a": {
+          "dtype": "float32",
+          "shape": [1],
+          "data": { "kind": "fillFloat32", "sinStep": 0.17, "cosStep": 0.23, "scale": 1.5 }
+        },
+        "b": {
+          "dtype": "float32",
+          "shape": [2, 8],
+          "data": { "kind": "fillFloat32", "sinStep": 0.31, "cosStep": 0.11, "scale": 1.5 }
+        }
+      },
+      "outputs": { "c": { "dtype": "float32", "shape": [2, 8], "tolerance": 0.000001 } }
+    },
+    {
+      "name": "ort_int32_lhs_scalar_broadcast",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_webgpu_int64_lhs_scalar",
+        "notes": "Upstream uses int64 values; this case uses representable int32 values while preserving the scalar-broadcast edge."
+      },
+      "inputs": {
+        "a": { "dtype": "int32", "shape": [1], "data": { "kind": "values", "values": [100] } },
+        "b": { "dtype": "int32", "shape": [5], "data": { "kind": "values", "values": [1, 2, 3, 4, 5] } }
+      },
+      "outputs": { "c": { "dtype": "int32", "shape": [5], "tolerance": 0 } }
+    },
+    {
+      "name": "ort_int32_rhs_scalar_broadcast",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_webgpu_int64_rhs_scalar",
+        "notes": "Upstream is int64; transcribed at int32."
+      },
+      "inputs": {
+        "a": { "dtype": "int32", "shape": [5], "data": { "kind": "values", "values": [10, 20, 30, 40, 50] } },
+        "b": { "dtype": "int32", "shape": [1], "data": { "kind": "values", "values": [7] } }
+      },
+      "outputs": { "c": { "dtype": "int32", "shape": [5], "tolerance": 0 } }
+    },
+    {
+      "name": "ort_int32_broadcast_size_div4",
+      "provenance": {
+        "source": "onnxruntime/test/providers/cpu/math/element_wise_ops_test.cc",
+        "test": "MathOpTest.Add_webgpu_int64_broadcast_size_div4",
+        "notes": "Upstream is int64; transcribed at int32."
+      },
+      "inputs": {
+        "a": { "dtype": "int32", "shape": [1, 4], "data": { "kind": "values", "values": [10, 20, 30, 40] } },
+        "b": { "dtype": "int32", "shape": [2, 4], "data": { "kind": "values", "values": [1, 2, 3, 4, 5, 6, 7, 8] } }
+      },
+      "outputs": { "c": { "dtype": "int32", "shape": [2, 4], "tolerance": 0 } }
+    }
+  ]
+}

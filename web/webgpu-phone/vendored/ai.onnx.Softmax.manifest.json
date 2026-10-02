@@ -1,0 +1,449 @@
+{
+  "domain": "ai.onnx",
+  "name": "Softmax",
+  "sinceVersion": 13,
+  "inputs": { "x": { "onnx": "input", "dtype": "T" } },
+  "outputs": { "y": { "onnx": "output", "dtype": "T", "rank": "ranks.x", "shape": "shapes.x" } },
+  "attributes": { "axis": { "default": -1 } },
+  "typeConstraints": { "T": ["float32", "float16"] },
+  "tunables": {
+    "WORKGROUP_SIZE": { "default": 256 },
+    "ROW_MIN_WORKGROUP": { "default": 64 },
+    "ROW_COLS_PER_LANE": { "default": 8 },
+    "BLOCK_COLS": { "default": 1024 },
+    "LONGROW_SPLIT_MIN_COLS": { "default": 65536 },
+    "LONGROW_SPLIT_MAX_ROWS": { "default": 32 },
+    "STRIDED_ONLINE_MIN_COLS": { "default": 1024 },
+    "STRIDED_ONLINE_MIN_INNER": { "default": 128 },
+    "STRIDED_ONLINE_MIN_OUTER": { "default": 8 },
+    "STRIDED_ONLINE_MIN_ELEMENTS": { "default": 1048576 },
+    "PACKED_ROWS_MAX_COLS": { "default": 256 },
+    "PACKED_ROWS_MIN_ROW_GROUPS": { "default": 64 },
+    "PACKED_ROWS_VEC4_MAX_COLS": { "default": 128 },
+    "WG_VEC4_MIN_COLS": { "default": 128 },
+    "STRIDED_ONLINE_STREAMS": { "default": 2 }
+  },
+  "derive": {
+    "storageBufferLimit": "min(device.limits.maxStorageBufferBindingSize, device.limits.maxBufferSize)",
+    "narrowSubgroupRange": "has(device.adapterInfo, \"subgroupMinSize\") and has(device.adapterInfo, \"subgroupMaxSize\") and device.adapterInfo.subgroupMinSize < device.adapterInfo.subgroupMaxSize and device.adapterInfo.subgroupMaxSize <= 16",
+    "deviceWorkgroupCap": "min(device.limits.maxComputeInvocationsPerWorkgroup, device.limits.maxComputeWorkgroupSizeX)",
+    "axis": "attrs.axis if attrs.axis >= 0 else attrs.axis + ranks.x",
+    "lastCols": "dim(shapes.x, ranks.x - 1)",
+    "lastRows": "rows(shapes.x, ranks.x - 1)",
+    "axisInner": "inner(shapes.x, axis)",
+    "axisOuter": "outer(shapes.x, axis)",
+    "axisRows": "axisOuter * axisInner",
+    "longrowBlocks": "ceilDiv(lastCols, tunables.BLOCK_COLS)",
+    "lastRowScratchFits": "4 * lastRows <= storageBufferLimit",
+    "longrowBlockScratchFits": "4 * lastRows * longrowBlocks <= storageBufferLimit",
+    "lastDispatchFits": "ceilDiv(lastRows, min(device.limits.maxComputeWorkgroupsPerDimension, 65535)) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)",
+    "axisDispatchFits": "ceilDiv(axisRows, min(device.limits.maxComputeWorkgroupsPerDimension, 65535)) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)",
+    "axisThreadDispatchFits": "ceilDiv(ceilDiv(axisRows, tunables.WORKGROUP_SIZE), min(device.limits.maxComputeWorkgroupsPerDimension, 65535)) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)",
+    "lastAxisOk": "numel(shapes.x) == numel(shapes.y) and ranks.x >= 1 and (attrs.axis == -1 or attrs.axis == ranks.x - 1) and f16Ok(dtypes.T)",
+    "stridedAxisOk": "numel(shapes.x) == numel(shapes.y) and ranks.x >= 2 and attrs.axis + ranks.x >= 0 and attrs.axis < ranks.x and not (attrs.axis == -1 or attrs.axis == ranks.x - 1)",
+    "stridedCoopTileCols": "min(128, max(8, pow2ceil(ceilDiv(axisOuter * axisInner, 256))))",
+    "rowWorkgroupSize": "min(tunables.WORKGROUP_SIZE, max(tunables.ROW_MIN_WORKGROUP, pow2ceil(ceilDiv(lastCols, tunables.ROW_COLS_PER_LANE))))",
+    "subgroupRowsWorkgroup": "min(tunables.WORKGROUP_SIZE, deviceWorkgroupCap)",
+    "subgroupRowsLaneVecs": "ceilDiv(lastCols / 4, device.adapterInfo.subgroupMinSize) if (device.features.has(\"subgroups\") and has(device.adapterInfo, \"subgroupMinSize\") and device.adapterInfo.subgroupMinSize > 0) else 0",
+    "stridedCoopDispatchFits": "min(ceilDiv(axisRows, stridedCoopTileCols), DISPATCH_FOLD_WIDTH) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535) and ceilDiv(ceilDiv(axisRows, stridedCoopTileCols), DISPATCH_FOLD_WIDTH) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)",
+    "axisCols": "dim(shapes.x, axis)",
+    "stridedOnlineStreams": "min(4, pow2ceil(max(1, tunables.STRIDED_ONLINE_STREAMS)), max(1, ceilDiv(dim(shapes.x, axis), 256 / stridedCoopTileCols))) if dtypes.T == \"f16\" else 1"
+  },
+  "bindings": {
+    "x": { "elementType": "$T" },
+    "y": { "elementType": "$T" },
+    "params__uniform": {
+      "name": "params",
+      "struct": [
+        { "name": "count", "type": "u32", "value": "numel(shapes.x)" },
+        { "name": "cols", "type": "u32", "value": "lastCols" }
+      ]
+    },
+    "rowMax": { "buffer": "storage", "elementType": "f32" },
+    "rowSum": { "buffer": "storage", "elementType": "f32" },
+    "rowMax_f32": { "name": "rowMax", "buffer": "read-only-storage", "elementType": "f32" },
+    "rowSum_f32": { "name": "rowSum", "buffer": "read-only-storage", "elementType": "f32" },
+    "x_main": { "name": "x", "elementType": "$vectorScalar" },
+    "y_main": { "name": "y", "elementType": "$vectorScalar" },
+    "params": {
+      "struct": [
+        { "name": "rows", "type": "u32", "value": "lastRows" },
+        { "name": "vecCols", "type": "u32", "value": "lastCols / 4" }
+      ]
+    },
+    "params_main": {
+      "name": "params",
+      "struct": [
+        { "name": "rows", "type": "u32", "value": "lastRows" },
+        { "name": "cols", "type": "u32", "value": "lastCols" }
+      ]
+    }
+  },
+  "variants": [
+    {
+      "id": "longrow_split",
+      "priority": 30,
+      "when": ["lastCols >= tunables.LONGROW_SPLIT_MIN_COLS", "rows(shapes.x, ranks.x - 1) <= tunables.LONGROW_SPLIT_MAX_ROWS", "rows(shapes.x, ranks.x - 1) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "ceilDiv(dim(shapes.x, ranks.x - 1), tunables.BLOCK_COLS) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "lastRowScratchFits", "longrowBlockScratchFits", "lastAxisOk"],
+      "tunables": { "WORKGROUP_SIZE": { "default": 256 } },
+      "intermediates": [
+        {
+          "id": "blockMax",
+          "dtype": "float32",
+          "shape": "[rows(shapes.x, ranks.x - 1) * ceilDiv(dim(shapes.x, ranks.x - 1), tunables.BLOCK_COLS)]"
+        },
+        {
+          "id": "blockSum",
+          "dtype": "float32",
+          "shape": "[rows(shapes.x, ranks.x - 1) * ceilDiv(dim(shapes.x, ranks.x - 1), tunables.BLOCK_COLS)]"
+        },
+        { "id": "rowMax", "dtype": "float32", "shape": "[rows(shapes.x, ranks.x - 1)]" },
+        { "id": "rowSum", "dtype": "float32", "shape": "[rows(shapes.x, ranks.x - 1)]" }
+      ],
+      "passes": [
+        {
+          "id": "block_stats",
+          "name": "Softmax.LongRowBlockStats",
+          "shader": "softmax-longrow-stats.wgsl.jinja",
+          "derive": { "stage": "\"block\"", "combineSubgroups": false },
+          "bindings": [
+            "x",
+            { "name": "blockMax", "elementType": "f32" },
+            { "name": "blockSum", "elementType": "f32" },
+            {
+              "name": "params",
+              "struct": [
+                { "name": "cols", "type": "u32", "value": "lastCols" },
+                { "name": "blocks", "type": "u32", "value": "ceilDiv(lastCols, tunables.BLOCK_COLS)" }
+              ]
+            }
+          ],
+          "dispatch": {
+            "x": "ceilDiv(dim(shapes.x, ranks.x - 1), tunables.BLOCK_COLS)",
+            "y": "rows(shapes.x, ranks.x - 1)"
+          }
+        },
+        {
+          "id": "row_stats",
+          "name": "Softmax.LongRowStats",
+          "shader": "softmax-longrow-stats.wgsl.jinja",
+          "derive": { "stage": "\"row\"", "combineSubgroups": false },
+          "bindings": [
+            { "name": "blockMax", "buffer": "read-only-storage", "elementType": "f32" },
+            { "name": "blockSum", "buffer": "read-only-storage", "elementType": "f32" },
+            "rowMax",
+            "rowSum",
+            {
+              "name": "params",
+              "struct": [{ "name": "blocks", "type": "u32", "value": "ceilDiv(lastCols, tunables.BLOCK_COLS)" }]
+            }
+          ],
+          "dispatch": { "x": "rows(shapes.x, ranks.x - 1)" }
+        },
+        {
+          "id": "normalize",
+          "name": "Softmax.LongRowNormalize",
+          "shader": "softmax-longrow-normalize.wgsl.jinja",
+          "derive": { "op": "\"softmax\"" },
+          "bindings": [
+            "x",
+            "rowMax_f32",
+            "rowSum_f32",
+            "y",
+            { "name": "params", "struct": [{ "name": "cols", "type": "u32", "value": "lastCols" }] }
+          ],
+          "dispatch": {
+            "x": "ceilDiv(dim(shapes.x, ranks.x - 1), tunables.BLOCK_COLS)",
+            "y": "rows(shapes.x, ranks.x - 1)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "online_subgroup_rows_vec4",
+      "priority": 18,
+      "when": ["dim(shapes.x, ranks.x - 1) % 4 == 0", "has(device.adapterInfo, \"subgroupMinSize\")", "device.adapterInfo.subgroupMinSize >= 16", "dim(shapes.x, ranks.x - 1) >= 64", "subgroupRowsLaneVecs >= 1", "subgroupRowsLaneVecs <= 8", "lastRows >= 64", "has(device.adapterInfo, \"subgroupMaxSize\")", "device.adapterInfo.subgroupMaxSize <= subgroupRowsWorkgroup", "pow2ceil(subgroupRowsWorkgroup) == subgroupRowsWorkgroup", "ceilDiv(ceilDiv(lastRows, subgroupRowsWorkgroup / device.adapterInfo.subgroupMaxSize), min(device.limits.maxComputeWorkgroupsPerDimension, 65535)) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "lastAxisOk"],
+      "requires": { "features": ["subgroups"] },
+      "derive": {
+        "scalar": "dtypes.T",
+        "vectorScalar": "\"vec4<\" ~ dtypes.T ~ \">\"",
+        "workgroupSize": "subgroupRowsWorkgroup",
+        "vecsPerLane": "subgroupRowsLaneVecs"
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "Softmax.OnlineSubgroupRowsVec4",
+          "shader": "softmax-subgroup-rows.wgsl.jinja",
+          "derive": { "op": "\"softmax\"" },
+          "bindings": ["x_main", "y_main", "params"],
+          "dispatch": {
+            "x": "min(ceilDiv(lastRows, subgroupRowsWorkgroup / device.adapterInfo.subgroupMaxSize), 65535)",
+            "y": "ceilDiv(ceilDiv(lastRows, subgroupRowsWorkgroup / device.adapterInfo.subgroupMaxSize), 65535)",
+            "z": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "online_wg_vec4",
+      "priority": 16,
+      "when": ["dim(shapes.x, ranks.x - 1) % 4 == 0", "ceilDiv(rows(shapes.x, ranks.x - 1), min(device.limits.maxComputeWorkgroupsPerDimension, 65535)) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "lastAxisOk"],
+      "demoteWhen": ["dim(shapes.x, ranks.x - 1) < tunables.WG_VEC4_MIN_COLS"],
+      "derive": {
+        "combineSubgroups": "device.features.has(\"subgroups\") and not narrowSubgroupRange",
+        "scalar": "dtypes.T",
+        "vectorScalar": "\"vec4<\" ~ dtypes.T ~ \">\"",
+        "workgroupSize": "rowWorkgroupSize"
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "Softmax.OnlineWorkgroupVec4",
+          "shader": "softmax-online.wgsl.jinja",
+          "derive": { "op": "\"softmax\"", "useVec4": "true" },
+          "bindings": ["x_main", "y_main", "params"],
+          "dispatch": {
+            "x": "min(rows(shapes.x, ranks.x - 1), 65535)",
+            "y": "ceilDiv(rows(shapes.x, ranks.x - 1), 65535)",
+            "z": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "online_wg",
+      "priority": 15,
+      "when": ["dim(shapes.x, ranks.x - 1) > 32", "ceilDiv(rows(shapes.x, ranks.x - 1), min(device.limits.maxComputeWorkgroupsPerDimension, 65535)) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "lastAxisOk"],
+      "derive": {
+        "combineSubgroups": "device.features.has(\"subgroups\") and not narrowSubgroupRange",
+        "scalar": "dtypes.T",
+        "workgroupSize": "rowWorkgroupSize"
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "Softmax.OnlineWorkgroup",
+          "shader": "softmax-online.wgsl.jinja",
+          "derive": { "op": "\"softmax\"", "useVec4": "false" },
+          "bindings": ["x", "y", "params_main"],
+          "dispatch": {
+            "x": "min(rows(shapes.x, ranks.x - 1), 65535)",
+            "y": "ceilDiv(rows(shapes.x, ranks.x - 1), 65535)",
+            "z": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "online_packed_rows_vec4_nosg",
+      "priority": 19,
+      "when": ["lastCols > 0", "lastCols % 4 == 0", "lastCols <= tunables.PACKED_ROWS_VEC4_MAX_COLS", "lastRows > 32", "lastCols <= 32 or ceilDiv(lastRows, 32) >= tunables.PACKED_ROWS_MIN_ROW_GROUPS", "lastAxisOk"],
+      "derive": {
+        "scalar": "dtypes.T",
+        "vectorScalar": "\"vec4<\" ~ dtypes.T ~ \">\"",
+        "lanesPerRow": 8,
+        "rowsPerWorkgroup": 32
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "Softmax.OnlinePackedRowsVec4NoSg",
+          "shader": "softmax-online-packed-rows.wgsl.jinja",
+          "derive": {
+            "op": "\"softmax\"",
+            "lanesPerRow": "lanesPerRow",
+            "rowsPerWorkgroup": "rowsPerWorkgroup",
+            "useVec4": "true"
+          },
+          "bindings": ["x_main", "y_main", "params"],
+          "dispatch": {
+            "x": "min(ceilDiv(rows(shapes.x, ranks.x - 1), rowsPerWorkgroup), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "y": 1,
+            "z": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "online_packed_rows_nosg",
+      "priority": 19,
+      "when": ["lastCols > 0", "lastCols % 4 != 0", "lastCols <= tunables.PACKED_ROWS_MAX_COLS", "lastRows > 32", "lastCols <= 32 or ceilDiv(lastRows, 32) >= tunables.PACKED_ROWS_MIN_ROW_GROUPS", "lastAxisOk"],
+      "derive": { "scalar": "dtypes.T", "lanesPerRow": 8, "rowsPerWorkgroup": 32 },
+      "passes": [
+        {
+          "id": "main",
+          "name": "Softmax.OnlinePackedRowsNoSg",
+          "shader": "softmax-online-packed-rows.wgsl.jinja",
+          "derive": {
+            "op": "\"softmax\"",
+            "useVec4": "false",
+            "lanesPerRow": "lanesPerRow",
+            "rowsPerWorkgroup": "rowsPerWorkgroup"
+          },
+          "bindings": ["x", "y", "params_main"],
+          "dispatch": {
+            "x": "min(ceilDiv(rows(shapes.x, ranks.x - 1), rowsPerWorkgroup), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "y": 1,
+            "z": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "online_local_vec4_nosg",
+      "priority": 14,
+      "when": ["dim(shapes.x, ranks.x - 1) > 0", "dim(shapes.x, ranks.x - 1) <= 32", "dim(shapes.x, ranks.x - 1) % 4 == 0", "ceilDiv(rows(shapes.x, ranks.x - 1), min(device.limits.maxComputeWorkgroupsPerDimension, 65535)) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "lastAxisOk"],
+      "tunables": { "WORKGROUP_SIZE": { "default": 8 } },
+      "derive": {
+        "combineSubgroups": false,
+        "scalar": "dtypes.T",
+        "vectorScalar": "\"vec4<\" ~ dtypes.T ~ \">\"",
+        "workgroupSize": "tunables.WORKGROUP_SIZE"
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "Softmax.OnlineLocalVec4NoSg",
+          "shader": "softmax-online.wgsl.jinja",
+          "derive": { "op": "\"softmax\"", "useVec4": "true" },
+          "bindings": ["x_main", "y_main", "params"],
+          "dispatch": {
+            "x": "min(rows(shapes.x, ranks.x - 1), 65535)",
+            "y": "ceilDiv(rows(shapes.x, ranks.x - 1), 65535)",
+            "z": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "online_local_nosg",
+      "priority": 13,
+      "when": ["dim(shapes.x, ranks.x - 1) > 0", "dim(shapes.x, ranks.x - 1) <= 32", "ceilDiv(rows(shapes.x, ranks.x - 1), min(device.limits.maxComputeWorkgroupsPerDimension, 65535)) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "lastAxisOk"],
+      "tunables": { "WORKGROUP_SIZE": { "default": 32 } },
+      "derive": { "combineSubgroups": false, "scalar": "dtypes.T", "workgroupSize": "tunables.WORKGROUP_SIZE" },
+      "passes": [
+        {
+          "id": "main",
+          "name": "Softmax.OnlineLocalNoSg",
+          "shader": "softmax-online.wgsl.jinja",
+          "derive": { "op": "\"softmax\"", "useVec4": "false" },
+          "bindings": ["x", "y", "params_main"],
+          "dispatch": {
+            "x": "min(rows(shapes.x, ranks.x - 1), 65535)",
+            "y": "ceilDiv(rows(shapes.x, ranks.x - 1), 65535)",
+            "z": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "strided_online_coop",
+      "priority": 13,
+      "when": ["stridedAxisOk", "f16Ok(dtypes.T)", "stridedCoopDispatchFits"],
+      "passes": [
+        {
+          "id": "main",
+          "name": "Softmax.StridedOnlineCoop",
+          "shader": "softmax-strided-online-coop.wgsl.jinja",
+          "derive": {
+            "xShape": "shapes.x",
+            "axisSpec": "axis",
+            "tileCols": "stridedCoopTileCols",
+            "onlineStreams": "stridedOnlineStreams"
+          },
+          "bindings": ["x", "y"],
+          "dispatch": {
+            "x": "min(ceilDiv(axisOuter * axisInner, stridedCoopTileCols), 65535)",
+            "y": "ceilDiv(ceilDiv(axisOuter * axisInner, stridedCoopTileCols), 65535)",
+            "z": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "stable_3pass",
+      "priority": 0,
+      "when": ["lastAxisOk", "lastDispatchFits", "lastRowScratchFits"],
+      "intermediates": [
+        { "id": "rowMax", "dtype": "float32", "shape": "[numel(shapes.x) / dim(shapes.x, ranks.x - 1)]" },
+        { "id": "rowSum", "dtype": "float32", "shape": "[numel(shapes.x) / dim(shapes.x, ranks.x - 1)]" }
+      ],
+      "passes": [
+        {
+          "id": "reduce_max",
+          "name": "Softmax.ReduceMax",
+          "shader": "softmax-row-stage.wgsl.jinja",
+          "derive": { "stage": "\"max\"", "strided": "false" },
+          "bindings": ["x", "rowMax", "params_main"],
+          "dispatch": {
+            "x": "min(numel(shapes.x) / dim(shapes.x, ranks.x - 1), 65535)",
+            "y": "ceilDiv(numel(shapes.x) / dim(shapes.x, ranks.x - 1), 65535)",
+            "z": 1
+          }
+        },
+        {
+          "id": "exp_sum",
+          "name": "Softmax.ExpSum",
+          "shader": "softmax-row-stage.wgsl.jinja",
+          "derive": { "stage": "\"exp_sum\"", "strided": "false" },
+          "bindings": ["x", "rowMax_f32", "y", "rowSum", "params_main"],
+          "dispatch": {
+            "x": "min(numel(shapes.x) / dim(shapes.x, ranks.x - 1), 65535)",
+            "y": "ceilDiv(numel(shapes.x) / dim(shapes.x, ranks.x - 1), 65535)",
+            "z": 1
+          }
+        },
+        {
+          "id": "normalize",
+          "name": "Softmax.Normalize",
+          "shader": "softmax-normalize.wgsl.jinja",
+          "derive": { "strided": "false" },
+          "bindings": ["y", "rowSum_f32", "params__uniform"],
+          "dispatch": {
+            "x": "min(ceilDiv((numel(shapes.x)), (tunables.WORKGROUP_SIZE)), 65535)",
+            "y": "ceilDiv(ceilDiv((numel(shapes.x)), (tunables.WORKGROUP_SIZE)), 65535)",
+            "z": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "strided_online_lane_large_inner",
+      "priority": 12,
+      "when": ["stridedAxisOk", "axisCols >= tunables.STRIDED_ONLINE_MIN_COLS", "axisInner > tunables.STRIDED_ONLINE_MIN_INNER", "axisOuter >= tunables.STRIDED_ONLINE_MIN_OUTER", "numel(shapes.x) >= tunables.STRIDED_ONLINE_MIN_ELEMENTS", "axisThreadDispatchFits", "f16Ok(dtypes.T)"],
+      "passes": [
+        {
+          "id": "main",
+          "name": "Softmax.StridedOnlineLane",
+          "shader": "softmax-strided-online-lane.wgsl.jinja",
+          "derive": { "xShape": "shapes.x", "axisSpec": "axis" },
+          "bindings": ["x", "y"],
+          "dispatch": {
+            "x": "min(ceilDiv((axisRows), (tunables.WORKGROUP_SIZE)), 65535)",
+            "y": "ceilDiv(ceilDiv((axisRows), (tunables.WORKGROUP_SIZE)), 65535)",
+            "z": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "strided_online_capacity_fallback",
+      "priority": -1,
+      "when": ["stridedAxisOk", "axisThreadDispatchFits", "f16Ok(dtypes.T)"],
+      "passes": [
+        {
+          "id": "main",
+          "name": "Softmax.StridedOnlineCapacityFallback",
+          "shader": "softmax-strided-online-lane.wgsl.jinja",
+          "derive": { "xShape": "shapes.x", "axisSpec": "axis" },
+          "bindings": ["x", "y"],
+          "dispatch": {
+            "x": "min(ceilDiv((axisRows), (tunables.WORKGROUP_SIZE)), 65535)",
+            "y": "ceilDiv(ceilDiv((axisRows), (tunables.WORKGROUP_SIZE)), 65535)",
+            "z": 1
+          }
+        }
+      ]
+    }
+  ]
+}

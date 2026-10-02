@@ -170,6 +170,10 @@ that the startup line should read `split prefill on`, `remote KV on` and `ANE pa
 
 `scripts/serve.sh` documents each setting next to the measurement that chose it.
 
+Wireless (no cable): a browser tab can do the phone-held attention job over Wi-Fi with
+WebGPU kernels — `docs/WEBGPU-WIRELESS.md`. Attention only (no split prefill), best for
+adding context memory rather than speed.
+
 ## Reproducing the numbers
 
 ```bash

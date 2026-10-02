@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backburner WebGPU node (wireless)</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background: #000; color: #eef1f2; font: 15px/1.5 system-ui, sans-serif; margin: 0; }
+  main { max-width: 720px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #8a9296; margin-bottom: 16px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  input { flex: 1 1 220px; background: #111; color: #eef1f2; border: 1px solid #333; border-radius: 6px; padding: 8px; }
+  button { background: #1c6ef2; color: #fff; border: 0; border-radius: 6px; padding: 8px 16px; font-size: 15px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 16px 0; }
+  .card { background: #111; border: 1px solid #222; border-radius: 8px; padding: 10px; }
+  .card b { display: block; font-size: 22px; font-weight: 600; }
+  .card span { color: #8a9296; font-size: 12px; }
+  #log { background: #0a0a0a; border: 1px solid #222; border-radius: 8px; padding: 10px; height: 220px; overflow-y: auto; white-space: pre-wrap; font: 12px/1.5 monospace; }
+  label { color: #8a9296; font-size: 13px; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "@huggingface/kernels": "https://unpkg.com/@huggingface/kernels@0.0.1-preview.3/index.js"
+  }
+}
+</script>
+</head>
+<body>
+<main>
+  <h1>Backburner WebGPU node</h1>
+  <div class="sub">Wireless phone-attn over Wi-Fi/LAN. This tab holds the oldest KV pages and
+  computes their attention with <code>webgpu-kernels</code> MatMul + Softmax. No cable, no app install.</div>
+
+  <div class="row">
+    <input id="url" type="text" value="ws://127.0.0.1:50063" spellcheck="false" aria-label="Bridge URL">
+    <input id="token" type="password" value="" placeholder="token" aria-label="Token" style="flex-basis:140px">
+    <button id="connect">Connect</button>
+  </div>
+  <div class="row">
+    <label><input id="auto" type="checkbox" checked style="flex:none"> reconnect</label>
+    <span id="state">idle</span>
+  </div>
+
+  <div class="cards">
+    <div class="card"><b id="held">0</b><span>older tokens held</span></div>
+    <div class="card"><b id="calls">0</b><span>attention calls</span></div>
+    <div class="card"><b id="lastms">-</b><span>last call</span></div>
+    <div class="card"><b id="phase">-</b><span>host phase</span></div>
+  </div>
+  <div class="sub">kernels: <span id="kernels">not loaded</span></div>
+
+  <div id="log" aria-label="Log"></div>
+  <p class="sub">Keep this tab open (the host carries on alone if it disconnects). Serve the page over
+  <code>http://localhost</code> (secure context for WebGPU), e.g.
+  <code>python -m http.server 8000 --directory web/webgpu-phone</code>. See
+  <code>docs/WEBGPU-WIRELESS.md</code>.</p>
+</main>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

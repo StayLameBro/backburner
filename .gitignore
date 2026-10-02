@@ -1,4 +1,10 @@
 build/
+llama.cpp/build-windows/
+llama.cpp/build-android/
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
 ios/build/
 ios/Backburner/Frameworks/
 *.o

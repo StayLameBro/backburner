@@ -1,0 +1,1482 @@
+{
+  "domain": "ai.onnx",
+  "name": "MatMul",
+  "sinceVersion": 9,
+  "inputs": { "a": { "onnx": "A", "dtype": "T" }, "b": { "onnx": "B", "dtype": "T" } },
+  "outputs": {
+    "y": {
+      "onnx": "Y",
+      "dtype": "T",
+      "rank": "max(ranks.a, ranks.b) - (1 if ranks.a == 1 or ranks.b == 1 else 0)",
+      "shape": "matmulShape(shapes.a, shapes.b)"
+    }
+  },
+  "typeConstraints": { "T": ["float32", "float16", "int32", "uint32"] },
+  "tunables": {
+    "NOTRANS_VEC4_MIN_BLOCKS": { "default": 64 },
+    "NOTRANS_VEC4_M64_MIN_BLOCKS": { "default": 32 },
+    "TILE": { "default": 8 },
+    "SUBGROUP_MATRIX_MIN_M": { "default": 2 },
+    "SUBGROUP_MATRIX_MAX_N_PADDING_RATIO": { "default": 1 },
+    "SUBGROUP_MATRIX_SPLITK_TARGET_WGS": { "default": 512 },
+    "SUBGROUP_MATRIX_SPLITK_MIN_K": { "default": 1024 },
+    "SUBGROUP_MATRIX_SPLITK_MAX_TILES": { "default": 128 },
+    "SUBGROUP_MATRIX_BATCH_MIN_M": { "default": 2 },
+    "TILED_REG_MIN_M": { "default": 64 },
+    "TILED_REG_MIN_K": { "default": 32 },
+    "TILED_REG_MIN_N": { "default": 64 },
+    "TILED_REG_MIN_WORKGROUPS": { "default": 32 },
+    "TILED_REG_LARGE_MIN_M": { "default": 128 },
+    "TILED_REG_LARGE_MIN_K": { "default": 64 },
+    "TILED_REG_LARGE_MIN_N": { "default": 128 },
+    "TILED_REG_LARGE_MIN_WORKGROUPS": { "default": 64 },
+    "TILED_REG_RANK2_MIN_N": { "default": 512 },
+    "GEMV_PARALLEL_MIN_K": { "default": 96 },
+    "DOT_SPLIT_MIN_K": { "default": 8192 },
+    "DOT_WORKGROUP_SIZE": { "default": 256 },
+    "DOT_MAX_SPLITS": { "default": 256 },
+    "GEMV_TARGET_BLOCKS": { "default": 512 },
+    "BAND_VEC4_MAX_ROWS": { "default": 16 },
+    "BAND_BATCHED_MIN_WORKGROUPS": { "default": 64 },
+    "BAND_VEC4_WIDE_MIN_N": { "default": 2048 },
+    "BAND_VEC4_WIDE_MAX_A_BYTES": { "default": 196608 },
+    "NOTRANS_VEC4_F16_SMALL_TILE_MAX_BLOCKS": { "default": 128 },
+    "NOTRANS_SPLITK_TARGET_WORKGROUPS": { "default": 512 },
+    "NOTRANS_SPLITK_MAX_TILES": { "default": 128 },
+    "NOTRANS_SPLITK_MIN_WORKGROUPS": { "default": 32 },
+    "BAND_SPLIT_TARGET_WORKGROUPS": { "default": 256 },
+    "BAND_SPLIT_MAX_COLUMN_GROUPS": { "default": 24 },
+    "BAND_SPLIT_SLICES": { "default": 8 },
+    "BAND_SPLIT_MATRIX_MIN_ROW_PADDING": { "default": 4 },
+    "TAIL_K_PREFETCH": { "default": 4 }
+  },
+  "derive": {
+    "gemvN": "dim(shapes.b, 1)",
+    "deviceWorkgroupCap": "min(device.limits.maxComputeInvocationsPerWorkgroup, device.limits.maxComputeWorkgroupSizeX)",
+    "wave32Adapter": "has(device.adapterInfo, \"subgroupMinSize\") and has(device.adapterInfo, \"subgroupMaxSize\") and device.adapterInfo.subgroupMinSize == 32 and device.adapterInfo.subgroupMaxSize == 32",
+    "narrowSubgroupRange": "has(device.adapterInfo, \"subgroupMinSize\") and has(device.adapterInfo, \"subgroupMaxSize\") and device.adapterInfo.subgroupMinSize < device.adapterInfo.subgroupMaxSize and device.adapterInfo.subgroupMaxSize <= 16",
+    "reportedNonWave32Adapter": "not wave32Adapter and (has(device.adapterInfo, \"subgroupMinSize\") or has(device.adapterInfo, \"subgroupMaxSize\"))",
+    "canPinSubgroupSize32": "device.features.has(\"subgroups\") and device.features.has(\"subgroup-size-control\") and has(device.adapterInfo, \"subgroupMinSize\") and has(device.adapterInfo, \"subgroupMaxSize\") and device.adapterInfo.subgroupMinSize <= 32 and device.adapterInfo.subgroupMaxSize >= 32",
+    "pinSubgroupSize32": "canPinSubgroupSize32 and not wave32Adapter",
+    "wave32Effective": "wave32Adapter or pinSubgroupSize32",
+    "variableSubgroup16To32": "device.features.has(\"subgroups\") and has(device.adapterInfo, \"subgroupMinSize\") and has(device.adapterInfo, \"subgroupMaxSize\") and device.adapterInfo.subgroupMinSize == 16 and device.adapterInfo.subgroupMaxSize == 32",
+    "gemvLanes": 32,
+    "vec4OutputTile": "4 * gemvLanes",
+    "gemvWorkgroups": "ceilDiv(gemvN, vec4OutputTile)",
+    "gemvSliceCap": "min(32, device.limits.maxComputeWorkgroupSizeY, floor(device.limits.maxComputeInvocationsPerWorkgroup / gemvLanes), floor(device.limits.maxComputeWorkgroupStorageSize / (16 * gemvLanes)))",
+    "gemvSlices": "max(1, min(gemvSliceCap, max(8, pow2ceil(ceilDiv(tunables.GEMV_TARGET_BLOCKS, gemvWorkgroups)))))",
+    "gemvResourcesFit": "gemvLanes <= device.limits.maxComputeWorkgroupSizeX and gemvSlices <= device.limits.maxComputeWorkgroupSizeY and gemvLanes * gemvSlices <= device.limits.maxComputeInvocationsPerWorkgroup and 16 * gemvLanes * gemvSlices <= device.limits.maxComputeWorkgroupStorageSize",
+    "bandBatchedWorkgroups": "outer(shapes.y, ranks.y - 2) * ceilDiv(dim(shapes.b, ranks.b - 1), vec4OutputTile) if ranks.y >= 3 else 1",
+    "bandBatchedSlices": "max(1, min(gemvSliceCap, pow2ceil(ceilDiv(tunables.GEMV_TARGET_BLOCKS, bandBatchedWorkgroups))))",
+    "bandBatchedResourcesFit": "gemvLanes <= device.limits.maxComputeWorkgroupSizeX and bandBatchedSlices <= device.limits.maxComputeWorkgroupSizeY and gemvLanes * bandBatchedSlices <= device.limits.maxComputeInvocationsPerWorkgroup and 16 * gemvLanes * bandBatchedSlices <= device.limits.maxComputeWorkgroupStorageSize",
+    "foldedRows3ShapeOk": "ranks.a == 3 and ranks.b == 2 and ranks.y == 3 and (dim(shapes.a, 0) == 1 or dim(shapes.a, 1) == 1) and dim(shapes.a, 2) == dim(shapes.b, 0) and dim(shapes.y, 0) == dim(shapes.a, 0) and dim(shapes.y, 1) == dim(shapes.a, 1) and dim(shapes.y, 2) == dim(shapes.b, 1)",
+    "foldedRowsM": "dim(shapes.a, 0) * dim(shapes.a, 1)",
+    "rank2ShapeOk": "ranks.a == 2 and ranks.b == 2 and ranks.y == 2 and dim(shapes.a, 1) == dim(shapes.b, 0) and dim(shapes.y, 0) == dim(shapes.a, 0) and dim(shapes.y, 1) == dim(shapes.b, 1)",
+    "rank3ShapeOk": "ranks.a == 3 and ranks.b == 3 and ranks.y == 3 and dim(shapes.a, 0) == dim(shapes.b, 0) and dim(shapes.y, 0) == dim(shapes.a, 0) and dim(shapes.a, 2) == dim(shapes.b, 1) and dim(shapes.y, 1) == dim(shapes.a, 1) and dim(shapes.y, 2) == dim(shapes.b, 2)",
+    "rank3ByRank2ShapeOk": "ranks.a == 3 and ranks.b == 2 and ranks.y == 3 and dim(shapes.a, 2) == dim(shapes.b, 0) and dim(shapes.y, 0) == dim(shapes.a, 0) and dim(shapes.y, 1) == dim(shapes.a, 1) and dim(shapes.y, 2) == dim(shapes.b, 1)",
+    "rank2ByRank3ShapeOk": "ranks.a == 2 and ranks.b == 3 and ranks.y == 3 and dim(shapes.a, 1) == dim(shapes.b, 1) and dim(shapes.y, 0) == dim(shapes.b, 0) and dim(shapes.y, 1) == dim(shapes.a, 0) and dim(shapes.y, 2) == dim(shapes.b, 2)",
+    "rank4ShapeOk": "ranks.a == 4 and ranks.b == 4 and ranks.y == 4 and dim(shapes.a, 0) == dim(shapes.b, 0) and dim(shapes.y, 0) == dim(shapes.a, 0) and dim(shapes.a, 1) == dim(shapes.b, 1) and dim(shapes.y, 1) == dim(shapes.a, 1) and dim(shapes.a, 3) == dim(shapes.b, 2) and dim(shapes.y, 2) == dim(shapes.a, 2) and dim(shapes.y, 3) == dim(shapes.b, 3)",
+    "rank3BroadcastShapeOk": "ranks.a == 3 and ranks.b == 3 and ranks.y == 3 and dim(shapes.a, 2) == dim(shapes.b, 1) and sameShape(shapes.y, matmulShape(shapes.a, shapes.b))",
+    "rank4BroadcastShapeOk": "ranks.a == 4 and ranks.b == 4 and ranks.y == 4 and dim(shapes.a, 3) == dim(shapes.b, 2) and sameShape(shapes.y, matmulShape(shapes.a, shapes.b))",
+    "rank4HasBroadcast": "dim(shapes.a, 0) == 1 or dim(shapes.b, 0) == 1 or dim(shapes.a, 1) == 1 or dim(shapes.b, 1) == 1",
+    "rank4ByRank2ShapeOk": "ranks.a == 4 and ranks.b == 2 and ranks.y == 4 and dim(shapes.a, 3) == dim(shapes.b, 0) and dim(shapes.y, 0) == dim(shapes.a, 0) and dim(shapes.y, 1) == dim(shapes.a, 1) and dim(shapes.y, 2) == dim(shapes.a, 2) and dim(shapes.y, 3) == dim(shapes.b, 1)",
+    "rank2ByRank4ShapeOk": "ranks.a == 2 and ranks.b == 4 and ranks.y == 4 and dim(shapes.a, 1) == dim(shapes.b, 2) and dim(shapes.y, 0) == dim(shapes.b, 0) and dim(shapes.y, 1) == dim(shapes.b, 1) and dim(shapes.y, 2) == dim(shapes.a, 0) and dim(shapes.y, 3) == dim(shapes.b, 3)",
+    "rank3ByRank4PaddedShapeOk": "ranks.a == 3 and ranks.b == 4 and ranks.y == 4 and dim(shapes.a, 2) == dim(shapes.b, 2) and sameShape(shapes.y, matmulShape(shapes.a, shapes.b))",
+    "rank4ByRank3PaddedShapeOk": "ranks.a == 4 and ranks.b == 3 and ranks.y == 4 and dim(shapes.a, 3) == dim(shapes.b, 1) and sameShape(shapes.y, matmulShape(shapes.a, shapes.b))",
+    "rank5BroadcastShapeOk": "ranks.a == 5 and ranks.b == 5 and ranks.y == 5 and dim(shapes.a, 4) == dim(shapes.b, 3) and sameShape(shapes.y, matmulShape(shapes.a, shapes.b))",
+    "matrixVectorShapeOk": "ranks.a == 2 and ranks.b == 1 and ranks.y == 1 and dim(shapes.a, 1) == dim(shapes.b, 0) and dim(shapes.y, 0) == dim(shapes.a, 0)",
+    "vectorMatrixShapeOk": "ranks.a == 1 and ranks.b == 2 and ranks.y == 1 and dim(shapes.a, 0) == dim(shapes.b, 0) and dim(shapes.y, 0) == dim(shapes.b, 1)",
+    "dotShapeOk": "ranks.a == 1 and ranks.b == 1 and ranks.y == 0 and dim(shapes.a, 0) == dim(shapes.b, 0)",
+    "subgroupFloatTypeOk": "(dtypes.T == \"f16\" or dtypes.T == \"f32\") and f16Ok(dtypes.T)",
+    "subgroupWidth32NotExcluded": "(has(device.adapterInfo, \"subgroupMinSize\") and has(device.adapterInfo, \"subgroupMaxSize\") and device.adapterInfo.subgroupMinSize <= 32 and device.adapterInfo.subgroupMaxSize >= 32) or not (has(device.adapterInfo, \"subgroupMinSize\") or has(device.adapterInfo, \"subgroupMaxSize\"))",
+    "subgroupRowFoldOk": "device.features.has(\"subgroups\")",
+    "registerBlockedWidthOk": "device.features.has(\"subgroups\") or not (has(device.adapterInfo, \"subgroupMinSize\") and device.adapterInfo.subgroupMinSize < 16)",
+    "vec4RegTileDemotedWidth": "reportedNonWave32Adapter and device.features.has(\"subgroups\")",
+    "rank2Vec4RegTileDemotedWidth": "vec4RegTileDemotedWidth and not variableSubgroup16To32",
+    "subgroupTileRows": 32,
+    "subgroupTileCols": 64,
+    "sgmatN": "dim(shapes.b, ranks.b - 1)",
+    "sgmatNTail": "sgmatN % subgroupTileCols != 0",
+    "sgmatNPaddingHigh": "ceilDiv(sgmatN, subgroupTileCols) * subgroupTileCols > tunables.SUBGROUP_MATRIX_MAX_N_PADDING_RATIO * sgmatN",
+    "registerTile": 64,
+    "generalTile": 32,
+    "narrowM1TailRegPreferred": "rank2ShapeOk and dim(shapes.a, 0) == 1 and narrowSubgroupRange and ceilDiv(dim(shapes.b, 1), registerTile) >= tunables.TILED_REG_LARGE_MIN_WORKGROUPS and dim(shapes.a, 1) >= tunables.TILED_REG_LARGE_MIN_K",
+    "fallbackTile": "max(1, min(tunables.TILE, device.limits.maxComputeWorkgroupSizeX, device.limits.maxComputeWorkgroupSizeY, floor(pow(device.limits.maxComputeInvocationsPerWorkgroup, 0.5))))",
+    "subgroupMatrixResourcesFit": "128 <= deviceWorkgroupCap and ((32 * 32 + 64 * 32) * dtypeBytes(dtypes.T) + 4 * 4 * 64 * 4) <= device.limits.maxComputeWorkgroupStorageSize",
+    "tiledResourcesFit": "generalTile / 2 <= device.limits.maxComputeWorkgroupSizeX and generalTile / 2 <= device.limits.maxComputeWorkgroupSizeY and generalTile * generalTile / 4 <= device.limits.maxComputeInvocationsPerWorkgroup and generalTile * generalTile * dtypeBytes(dtypes.T) <= device.limits.maxComputeWorkgroupStorageSize",
+    "tiledRegResourcesFit": "registerTile / 4 <= device.limits.maxComputeWorkgroupSizeX and registerTile / 4 <= device.limits.maxComputeWorkgroupSizeY and registerTile * registerTile / 16 <= device.limits.maxComputeInvocationsPerWorkgroup and 32 * registerTile * dtypeBytes(dtypes.T) <= device.limits.maxComputeWorkgroupStorageSize",
+    "notransBk16StorageBytes": "(128 * 16 + 16 * 65) * dtypeBytes(dtypes.T)",
+    "notransBk32StorageBytes": "(128 * 32 + 32 * 65) * dtypeBytes(dtypes.T)",
+    "notransVec4ResourcesFit": "16 <= device.limits.maxComputeWorkgroupSizeX and 16 <= device.limits.maxComputeWorkgroupSizeY and 256 <= device.limits.maxComputeInvocationsPerWorkgroup and notransBk16StorageBytes <= device.limits.maxComputeWorkgroupStorageSize",
+    "notransSmallTileStorageBytes": "(32 * 32 + 32 * 32) * dtypeBytes(dtypes.T)",
+    "notransSmallTileResourcesFit": "8 <= device.limits.maxComputeWorkgroupSizeX and 8 <= device.limits.maxComputeWorkgroupSizeY and 64 <= device.limits.maxComputeInvocationsPerWorkgroup and notransSmallTileStorageBytes <= device.limits.maxComputeWorkgroupStorageSize",
+    "batchedVec4Blocks128": "outer(shapes.a, ranks.a - 2) * ceilDiv(dim(shapes.a, ranks.a - 2), 128) * ceilDiv(dim(shapes.b, ranks.b - 1), 64) if ranks.a >= 3 else 0",
+    "batchedVec4BlockRows": "128 if batchedVec4Blocks128 >= tunables.NOTRANS_VEC4_MIN_BLOCKS else 64",
+    "batchedVec4Blocks": "outer(shapes.a, ranks.a - 2) * ceilDiv(dim(shapes.a, ranks.a - 2), batchedVec4BlockRows) * ceilDiv(dim(shapes.b, ranks.b - 1), 64) if ranks.a >= 3 else 0",
+    "gemvRowResourcesFit": "32 <= deviceWorkgroupCap and 128 <= device.limits.maxComputeWorkgroupStorageSize",
+    "tailWorkgroupSize": 64,
+    "tailWorkgroupFits": "tailWorkgroupSize <= deviceWorkgroupCap",
+    "subgroupDispatchFits": "ceilDiv(dim(shapes.y, ranks.y - 1), subgroupTileCols) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)",
+    "rank2RegDispatchFits": "ceilDiv(dim(shapes.y, 1), registerTile) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535) and ceilDiv(dim(shapes.y, 0), registerTile) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)",
+    "rank2TiledDispatchFits": "ceilDiv(dim(shapes.y, 1), generalTile) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535) and ceilDiv(dim(shapes.y, 0), generalTile) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)",
+    "batchedRegDispatchFits": "ceilDiv(dim(shapes.y, ranks.y - 1), registerTile) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535) and ceilDiv(dim(shapes.y, ranks.y - 2), registerTile) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535) and numel(shapes.y) / dim(shapes.y, ranks.y - 2) / dim(shapes.y, ranks.y - 1) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)",
+    "batchedTiledNDispatchFits": "ceilDiv(dim(shapes.y, ranks.y - 1), generalTile) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)",
+    "dotSplitCount": "min(tunables.DOT_MAX_SPLITS, ceilDiv(dim(shapes.a, 0) / 4, tunables.DOT_WORKGROUP_SIZE))",
+    "dotSplitResourcesFit": "tunables.DOT_WORKGROUP_SIZE <= deviceWorkgroupCap and tunables.DOT_WORKGROUP_SIZE * 4 <= device.limits.maxComputeWorkgroupStorageSize and dotSplitCount <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535) and dotSplitCount * 4 <= device.limits.maxStorageBufferBindingSize and dotSplitCount * 4 <= device.limits.maxBufferSize",
+    "batchedByVectorShapeOk": "ranks.a >= 3 and ranks.a <= 4 and ranks.b == 1 and ranks.y == ranks.a - 1 and dim(shapes.a, ranks.a - 1) == dim(shapes.b, 0) and dim(shapes.y, 0) == dim(shapes.a, 0) and dim(shapes.y, 1) == dim(shapes.a, 1) and (ranks.a == 3 or dim(shapes.y, 2) == dim(shapes.a, 2))",
+    "vectorByBatchedShapeOk": "ranks.a == 1 and ranks.b >= 3 and ranks.b <= 4 and ranks.y == ranks.b - 1 and dim(shapes.a, 0) == dim(shapes.b, ranks.b - 2) and dim(shapes.y, ranks.y - 1) == dim(shapes.b, ranks.b - 1) and dim(shapes.y, 0) == dim(shapes.b, 0) and (ranks.b == 3 or dim(shapes.y, 1) == dim(shapes.b, 1))",
+    "sgmatSplitMRows": "foldedRowsM if foldedRows3ShapeOk else (dim(shapes.a, 0) if ranks.a == 2 else 1)",
+    "sgmatSplitKDepth": "dim(shapes.a, ranks.a - 1)",
+    "sgmatOutTiles": "ceilDiv(sgmatSplitMRows, subgroupTileRows) * ceilDiv(dim(shapes.b, 1), subgroupTileCols) if ranks.b == 2 else 1",
+    "sgmatSplitKWant": "ceilDiv(tunables.SUBGROUP_MATRIX_SPLITK_TARGET_WGS, sgmatOutTiles)",
+    "sgmatSplitK32Ok": "sgmatSplitKDepth % 1024 == 0",
+    "sgmatSplitK16Ok": "sgmatSplitKDepth % 512 == 0",
+    "sgmatSplitK8Ok": "sgmatSplitKDepth % 256 == 0",
+    "sgmatSplitK4Ok": "sgmatSplitKDepth % 128 == 0",
+    "sgmatSplitK2Ok": "sgmatSplitKDepth % 64 == 0",
+    "sgmatSplitK": "32 if (sgmatSplitKWant > 16 and sgmatSplitK32Ok) else (16 if (sgmatSplitKWant > 8 and sgmatSplitK16Ok) else (8 if (sgmatSplitKWant > 4 and sgmatSplitK8Ok) else (4 if (sgmatSplitKWant > 2 and sgmatSplitK4Ok) else (2 if sgmatSplitK2Ok else 1))))",
+    "byRank2ShapeOk": "rank3ByRank2ShapeOk or rank4ByRank2ShapeOk",
+    "foldedByRank2M": "outer(shapes.a, ranks.a - 1)",
+    "foldedByRank2K": "dim(shapes.a, ranks.a - 1)",
+    "bandPreferred": "rank2ShapeOk and dim(shapes.a, 0) >= 2 and dim(shapes.a, 0) <= tunables.BAND_VEC4_MAX_ROWS and dim(shapes.a, 1) > 0 and dim(shapes.b, 1) >= tunables.BAND_VEC4_WIDE_MIN_N and dim(shapes.a, 0) * dim(shapes.a, 1) * dtypeBytes(dtypes.T) <= tunables.BAND_VEC4_WIDE_MAX_A_BYTES and dim(shapes.b, 1) % 4 == 0 and gemvWorkgroups <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535) and (dtypes.T == \"f32\" or dtypes.T == \"f16\") and gemvResourcesFit",
+    "foldedBandPreferred": "byRank2ShapeOk and foldedByRank2M >= 2 and foldedByRank2M <= tunables.BAND_VEC4_MAX_ROWS and foldedByRank2K > 0 and dim(shapes.b, 1) >= tunables.BAND_VEC4_WIDE_MIN_N and foldedByRank2M * foldedByRank2K * dtypeBytes(dtypes.T) <= tunables.BAND_VEC4_WIDE_MAX_A_BYTES and dim(shapes.b, 1) % 4 == 0 and gemvWorkgroups <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535) and (dtypes.T == \"f32\" or dtypes.T == \"f16\") and gemvResourcesFit",
+    "notransSplitTiles": "ceilDiv(dim(shapes.a, 0), 128) * ceilDiv(dim(shapes.b, 1), 64)",
+    "notransSplitWant": "ceilDiv(tunables.NOTRANS_SPLITK_TARGET_WORKGROUPS, max(1, notransSplitTiles))",
+    "notransSplitK": "8 if (notransSplitWant >= 8 and dim(shapes.a, 1) % 256 == 0 and dim(shapes.a, 1) >= 1024) else (4 if (notransSplitWant >= 4 and dim(shapes.a, 1) % 128 == 0 and dim(shapes.a, 1) >= 512) else (2 if (notransSplitWant >= 2 and dim(shapes.a, 1) % 64 == 0 and dim(shapes.a, 1) >= 256) else 1))",
+    "bandSplitWant": "pow2ceil(ceilDiv(tunables.BAND_SPLIT_TARGET_WORKGROUPS, max(1, gemvWorkgroups)))",
+    "bandSplitK": "16 if (bandSplitWant >= 16 and dim(shapes.a, ranks.a - 1) >= 4096) else (8 if (bandSplitWant >= 8 and dim(shapes.a, ranks.a - 1) >= 2048) else (4 if (bandSplitWant >= 4 and dim(shapes.a, ranks.a - 1) >= 1024) else (2 if (bandSplitWant >= 2 and dim(shapes.a, ranks.a - 1) >= 512) else 1)))",
+    "outputBuffer": "\"y\"",
+    "rank2BandSplitEligible": "(rank2ShapeOk) and (dim(shapes.a, 0) >= 2) and (dim(shapes.a, 0) <= tunables.BAND_VEC4_MAX_ROWS) and (dim(shapes.a, 1) > 0) and (dim(shapes.b, 1) > 0) and (dim(shapes.b, 1) % 4 == 0) and (gemvWorkgroups <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)) and ((dtypes.T == \"f32\" or dtypes.T == \"f16\")) and (gemvResourcesFit) and (f16Ok(dtypes.T)) and (gemvWorkgroups <= tunables.BAND_SPLIT_MAX_COLUMN_GROUPS) and (bandSplitK >= 2) and (bandSplitK * numel(shapes.y) * 4 <= device.limits.maxStorageBufferBindingSize) and (bandSplitK <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)) and (tunables.BAND_SPLIT_SLICES <= device.limits.maxComputeWorkgroupSizeY) and (gemvLanes * tunables.BAND_SPLIT_SLICES <= device.limits.maxComputeInvocationsPerWorkgroup)",
+    "rank2BandSplitPreferred": "rank2BandSplitEligible and dim(shapes.a, 0) * tunables.BAND_SPLIT_MATRIX_MIN_ROW_PADDING <= subgroupTileRows and dim(shapes.a, 1) >= tunables.SUBGROUP_MATRIX_SPLITK_MIN_K and dim(shapes.a, 0) * ceilDiv(dim(shapes.a, 1), bandSplitK) * dtypeBytes(dtypes.T) <= tunables.BAND_VEC4_WIDE_MAX_A_BYTES and gemvWorkgroups * bandSplitK * subgroupTileRows >= tunables.BAND_SPLIT_TARGET_WORKGROUPS * dim(shapes.a, 0)",
+    "vectorScalar": "\"vec4<\" ~ dtypes.T ~ \">\"",
+    "fScalar": "\"f16\" if dtypes.T == \"f16\" else \"f32\""
+  },
+  "bindings": {
+    "a": { "elementType": "$T" },
+    "b": { "elementType": "$T" },
+    "y": { "elementType": "$T" },
+    "partials": { "buffer": "storage", "elementType": "f32" },
+    "partials_f32": { "name": "partials", "buffer": "read-only-storage", "elementType": "f32" },
+    "params": { "struct": [{ "name": "cols", "type": "u32", "value": "numel(shapes.y)" }] },
+    "a_main": { "name": "a", "elementType": "$vectorScalar" },
+    "b_main": { "name": "b", "elementType": "$vectorScalar" },
+    "y_main": { "name": "y", "elementType": "$vectorScalar" },
+    "params_main": {
+      "name": "params",
+      "struct": [
+        { "name": "alpha", "type": "f32", "value": "1.0" },
+        { "name": "M", "type": "u32", "value": "rowCount" }
+      ]
+    },
+    "y_partial": { "scratch": "partials", "name": "y", "elementType": "vec4<f32>" },
+    "params_n_k": {
+      "name": "params",
+      "struct": [
+        { "name": "N", "type": "u32", "value": "numel(shapes.y)" },
+        { "name": "K", "type": "u32", "value": "dim(shapes.a, ranks.a - 1)" }
+      ]
+    },
+    "params_k_n4": {
+      "name": "params",
+      "struct": [
+        { "name": "K", "type": "u32", "value": "dim(shapes.a, ranks.a - 1)" },
+        { "name": "N4", "type": "u32", "value": "numel(shapes.y) / 4" }
+      ]
+    },
+    "params_m_k": {
+      "name": "params",
+      "struct": [
+        { "name": "M", "type": "u32", "value": "numel(shapes.y)" },
+        { "name": "K", "type": "u32", "value": "dim(shapes.a, ranks.a - 1)" }
+      ]
+    },
+    "params_m_k4": {
+      "name": "params",
+      "struct": [
+        { "name": "M", "type": "u32", "value": "numel(shapes.y)" },
+        { "name": "K4", "type": "u32", "value": "dim(shapes.a, ranks.a - 1) / 4" }
+      ]
+    },
+    "params__uniform": {
+      "name": "params",
+      "struct": [
+        { "name": "M", "type": "u32", "value": "dim(shapes.y, ranks.y - 2)" },
+        { "name": "N", "type": "u32", "value": "dim(shapes.y, ranks.y - 1)" },
+        { "name": "K", "type": "u32", "value": "dim(shapes.a, ranks.a - 1)" },
+        { "name": "aBatch0", "type": "u32", "value": "dim(shapes.a, ranks.a - 5) if ranks.a >= 5 else 1" },
+        { "name": "aBatch1", "type": "u32", "value": "dim(shapes.a, ranks.a - 4) if ranks.a >= 4 else 1" },
+        { "name": "aBatch2", "type": "u32", "value": "dim(shapes.a, ranks.a - 3) if ranks.a >= 3 else 1" },
+        { "name": "bBatch0", "type": "u32", "value": "dim(shapes.b, ranks.b - 5) if ranks.b >= 5 else 1" },
+        { "name": "bBatch1", "type": "u32", "value": "dim(shapes.b, ranks.b - 4) if ranks.b >= 4 else 1" },
+        { "name": "bBatch2", "type": "u32", "value": "dim(shapes.b, ranks.b - 3) if ranks.b >= 3 else 1" },
+        { "name": "batch0", "type": "u32", "value": "dim(shapes.y, ranks.y - 5) if ranks.y >= 5 else 1" },
+        { "name": "batch1", "type": "u32", "value": "dim(shapes.y, ranks.y - 4) if ranks.y >= 4 else 1" },
+        { "name": "batch2", "type": "u32", "value": "dim(shapes.y, ranks.y - 3) if ranks.y >= 3 else 1" }
+      ]
+    },
+    "params_rows_cols_k": {
+      "name": "params",
+      "struct": [
+        { "name": "M", "type": "u32", "value": "dim(shapes.y, 0)" },
+        { "name": "N", "type": "u32", "value": "dim(shapes.y, 1)" },
+        { "name": "K", "type": "u32", "value": "dim(shapes.a, ranks.a - 1)" }
+      ]
+    },
+    "params_batched_vector": {
+      "name": "params",
+      "struct": [
+        { "name": "outputWidth", "type": "u32", "value": "dim(shapes.y, ranks.y - 1)" },
+        { "name": "K", "type": "u32", "value": "dim(shapes.a, ranks.a - 1)" },
+        { "name": "batchCount", "type": "u32", "value": "numel(shapes.y) / dim(shapes.y, ranks.y - 1)" }
+      ]
+    },
+    "params_rows": { "name": "params", "struct": [{ "name": "M", "type": "u32", "value": "rowCount" }] }
+  },
+  "variants": [
+    {
+      "id": "subgroup_matrix",
+      "priority": 100,
+      "when": ["rank2ShapeOk", "dim(shapes.a, 0) >= tunables.SUBGROUP_MATRIX_MIN_M", "dim(shapes.a, ranks.a - 1) % subgroupTileRows == 0", "subgroupFloatTypeOk", "subgroupMatrixResourcesFit", "subgroupDispatchFits", "wave32Effective", "not (bandPreferred or foldedBandPreferred)"],
+      "requires": {
+        "features": ["subgroups", "chromium-experimental-subgroup-matrix"],
+        "subgroupMatrixConfigs": [
+          { "componentType": "f16", "M": 8, "N": 8, "K": 8 },
+          { "componentType": "f32", "resultComponentType": "f32", "M": 8, "N": 8, "K": 8 }
+        ]
+      },
+      "derive": {
+        "generalAddressing": "sgmatNTail",
+        "tailSafe": "sgmatNTail",
+        "rowCount": "dim(shapes.a, 0)",
+        "K": "dim(shapes.a, ranks.a - 1)",
+        "N": "dim(shapes.b, 1)"
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.SubgroupMatrix",
+          "shader": "matmul-subgroup-matrix-ext.wgsl.jinja",
+          "derive": { "bShape": ["dim(shapes.b, 0)", "dim(shapes.b, 1)"], "aRank": 2, "bRank": 2 },
+          "bindings": ["a", "b", "y", "params_rows"],
+          "dispatch": {
+            "x": "ceilDiv(N, subgroupTileCols)",
+            "y": "min(ceilDiv(rowCount, subgroupTileRows), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ],
+      "demoteWhen": ["rank2BandSplitPreferred", "sgmatNPaddingHigh"]
+    },
+    {
+      "id": "subgroup_matrix_splitk",
+      "priority": 103,
+      "when": ["rank2ShapeOk", "dim(shapes.a, 0) >= tunables.SUBGROUP_MATRIX_MIN_M", "dim(shapes.a, ranks.a - 1) >= tunables.SUBGROUP_MATRIX_SPLITK_MIN_K", "sgmatSplitK >= 2", "sgmatOutTiles < tunables.SUBGROUP_MATRIX_SPLITK_MAX_TILES", "sgmatSplitK * numel(shapes.y) * 4 <= device.limits.maxStorageBufferBindingSize", "sgmatSplitK <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "subgroupFloatTypeOk", "subgroupMatrixResourcesFit", "subgroupDispatchFits", "wave32Effective", "not (bandPreferred or foldedBandPreferred)"],
+      "requires": {
+        "features": ["subgroups", "chromium-experimental-subgroup-matrix"],
+        "subgroupMatrixConfigs": [
+          { "componentType": "f16", "M": 8, "N": 8, "K": 8 },
+          { "componentType": "f32", "resultComponentType": "f32", "M": 8, "N": 8, "K": 8 }
+        ]
+      },
+      "derive": {
+        "hasBias": false,
+        "generalAddressing": true,
+        "tailSafe": "sgmatNTail",
+        "outputBuffer": "\"partials\"",
+        "outScalar": "\"f32\"",
+        "alpha": 1,
+        "rowCount": "dim(shapes.a, 0)",
+        "K": "dim(shapes.a, ranks.a - 1)",
+        "N": "dim(shapes.b, 1)",
+        "batchCount": 1,
+        "splitK": "sgmatSplitK",
+        "kPerSplit": "K / sgmatSplitK",
+        "split": "sgmatSplitK",
+        "workgroupSize": 256
+      },
+      "intermediates": [{ "id": "partials", "dtype": "float32", "shape": "[sgmatSplitK * numel(shapes.y)]" }],
+      "passes": [
+        {
+          "id": "partial",
+          "name": "MatMul.SubgroupMatrixSplitK",
+          "shader": "matmul-subgroup-matrix-ext.wgsl.jinja",
+          "derive": { "bShape": ["dim(shapes.b, 0)", "dim(shapes.b, 1)"], "aRank": 2, "bRank": 2 },
+          "bindings": ["a", "b", "partials", "params_rows"],
+          "dispatch": {
+            "x": "ceilDiv(N, subgroupTileCols)",
+            "y": "ceilDiv(rowCount, subgroupTileRows)",
+            "z": "sgmatSplitK"
+          }
+        },
+        {
+          "id": "combine",
+          "name": "MatMul.SubgroupMatrixSplitKCombine",
+          "shader": "reduce-axis0-splitk-combine.wgsl.jinja",
+          "derive": { "op": "\"sum\"", "outputF16": "dtypes.T == \"f16\"", "intMode": false },
+          "bindings": ["partials_f32", "y", "params"],
+          "dispatch": {
+            "x": "min(ceilDiv((numel(shapes.y)), (256)), 65535)",
+            "y": "ceilDiv(ceilDiv((numel(shapes.y)), (256)), 65535)",
+            "z": 1
+          }
+        }
+      ],
+      "demoteWhen": ["rank2BandSplitPreferred", "sgmatNPaddingHigh"]
+    },
+    {
+      "id": "folded_rows_subgroup_matrix",
+      "priority": 101,
+      "when": ["foldedRows3ShapeOk", "foldedRowsM >= tunables.SUBGROUP_MATRIX_MIN_M", "dim(shapes.a, ranks.a - 1) % subgroupTileRows == 0", "subgroupFloatTypeOk", "subgroupMatrixResourcesFit", "subgroupDispatchFits", "wave32Effective", "not (bandPreferred or foldedBandPreferred)"],
+      "requires": {
+        "features": ["subgroups", "chromium-experimental-subgroup-matrix"],
+        "subgroupMatrixConfigs": [
+          { "componentType": "f16", "M": 8, "N": 8, "K": 8 },
+          { "componentType": "f32", "resultComponentType": "f32", "M": 8, "N": 8, "K": 8 }
+        ]
+      },
+      "derive": {
+        "generalAddressing": "sgmatNTail",
+        "tailSafe": "sgmatNTail",
+        "rowCount": "foldedRowsM",
+        "K": "dim(shapes.a, ranks.a - 1)",
+        "N": "dim(shapes.b, 1)"
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.SubgroupMatrix",
+          "shader": "matmul-subgroup-matrix-ext.wgsl.jinja",
+          "derive": { "bShape": ["dim(shapes.b, 0)", "dim(shapes.b, 1)"], "aRank": 2, "bRank": 2 },
+          "bindings": ["a", "b", "y", "params_rows"],
+          "dispatch": {
+            "x": "ceilDiv(N, subgroupTileCols)",
+            "y": "min(ceilDiv(rowCount, subgroupTileRows), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ],
+      "demoteWhen": ["rank2BandSplitPreferred", "sgmatNPaddingHigh"]
+    },
+    {
+      "id": "folded_rows_subgroup_matrix_splitk",
+      "priority": 104,
+      "when": ["foldedRows3ShapeOk", "foldedRowsM >= tunables.SUBGROUP_MATRIX_MIN_M", "dim(shapes.a, ranks.a - 1) >= tunables.SUBGROUP_MATRIX_SPLITK_MIN_K", "sgmatSplitK >= 2", "sgmatOutTiles < tunables.SUBGROUP_MATRIX_SPLITK_MAX_TILES", "sgmatSplitK * numel(shapes.y) * 4 <= device.limits.maxStorageBufferBindingSize", "sgmatSplitK <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "subgroupFloatTypeOk", "subgroupMatrixResourcesFit", "subgroupDispatchFits", "wave32Effective", "not (bandPreferred or foldedBandPreferred)"],
+      "requires": {
+        "features": ["subgroups", "chromium-experimental-subgroup-matrix"],
+        "subgroupMatrixConfigs": [
+          { "componentType": "f16", "M": 8, "N": 8, "K": 8 },
+          { "componentType": "f32", "resultComponentType": "f32", "M": 8, "N": 8, "K": 8 }
+        ]
+      },
+      "derive": {
+        "hasBias": false,
+        "generalAddressing": true,
+        "tailSafe": "sgmatNTail",
+        "outputBuffer": "\"partials\"",
+        "outScalar": "\"f32\"",
+        "alpha": 1,
+        "rowCount": "foldedRowsM",
+        "K": "dim(shapes.a, ranks.a - 1)",
+        "N": "dim(shapes.b, 1)",
+        "batchCount": 1,
+        "splitK": "sgmatSplitK",
+        "kPerSplit": "K / sgmatSplitK",
+        "split": "sgmatSplitK",
+        "workgroupSize": 256
+      },
+      "intermediates": [{ "id": "partials", "dtype": "float32", "shape": "[sgmatSplitK * numel(shapes.y)]" }],
+      "passes": [
+        {
+          "id": "partial",
+          "name": "MatMul.SubgroupMatrixSplitK",
+          "shader": "matmul-subgroup-matrix-ext.wgsl.jinja",
+          "derive": { "bShape": ["dim(shapes.b, 0)", "dim(shapes.b, 1)"], "aRank": 2, "bRank": 2 },
+          "bindings": ["a", "b", "partials", "params_rows"],
+          "dispatch": {
+            "x": "ceilDiv(N, subgroupTileCols)",
+            "y": "ceilDiv(rowCount, subgroupTileRows)",
+            "z": "sgmatSplitK"
+          }
+        },
+        {
+          "id": "combine",
+          "name": "MatMul.SubgroupMatrixSplitKCombine",
+          "shader": "reduce-axis0-splitk-combine.wgsl.jinja",
+          "derive": { "op": "\"sum\"", "outputF16": "dtypes.T == \"f16\"", "intMode": false },
+          "bindings": ["partials_f32", "y", "params"],
+          "dispatch": {
+            "x": "min(ceilDiv((numel(shapes.y)), (256)), 65535)",
+            "y": "ceilDiv(ceilDiv((numel(shapes.y)), (256)), 65535)",
+            "z": 1
+          }
+        }
+      ],
+      "demoteWhen": ["rank2BandSplitPreferred", "sgmatNPaddingHigh"]
+    },
+    {
+      "id": "folded_by_rank2_tiled_reg",
+      "priority": 53,
+      "when": ["byRank2ShapeOk", "registerBlockedWidthOk", "ceilDiv(foldedByRank2M, registerTile) * ceilDiv(dim(shapes.b, 1), registerTile) >= tunables.TILED_REG_LARGE_MIN_WORKGROUPS", "dim(shapes.b, 1) >= tunables.TILED_REG_RANK2_MIN_N", "foldedByRank2K >= tunables.TILED_REG_LARGE_MIN_K", "ceilDiv(dim(shapes.b, 1), registerTile) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "ceilDiv(foldedByRank2M, registerTile) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "tiledRegResourcesFit", "f16Ok(dtypes.T)"],
+      "derive": { "scalar": "dtypes.T", "rowCount": "foldedByRank2M" },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.FoldedByRank2TiledReg",
+          "shader": "matmul-tiled-general-reg.wgsl.jinja",
+          "derive": {
+            "K": "dim(shapes.a, ranks.a - 1)",
+            "bShape": "shapes.b",
+            "alpha": "1.0",
+            "aRank": "2",
+            "bRank": "ranks.b",
+            "transBatchA": "false"
+          },
+          "bindings": ["a", "b", "y", "params_rows"],
+          "dispatch": {
+            "x": "ceilDiv(dim(shapes.y, ranks.y - 1), registerTile)",
+            "y": "min(ceilDiv(rowCount, registerTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "z": "min(1, min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ]
+    },
+    {
+      "id": "folded_by_rank2_tiled",
+      "priority": 51,
+      "when": ["byRank2ShapeOk", "foldedByRank2M > 1", "ceilDiv(dim(shapes.b, 1), generalTile) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "ceilDiv(foldedByRank2M, generalTile) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "tiledResourcesFit", "f16Ok(dtypes.T)"],
+      "derive": { "scalar": "dtypes.T", "rowCount": "foldedByRank2M" },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.FoldedByRank2Tiled",
+          "shader": "matmul-tiled-general.wgsl.jinja",
+          "derive": {
+            "K": "dim(shapes.a, ranks.a - 1)",
+            "bShape": "shapes.b",
+            "transA": "false",
+            "transB": "false",
+            "alpha": "1.0",
+            "aRank": "2",
+            "bRank": "ranks.b",
+            "transBatchA": "false",
+            "transBatchB": "false"
+          },
+          "bindings": ["a", "b", "y", "params_rows"],
+          "dispatch": {
+            "x": "ceilDiv(dim(shapes.y, ranks.y - 1), generalTile)",
+            "y": "min(ceilDiv(rowCount, generalTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "z": "min(1, min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ]
+    },
+    {
+      "id": "batched_by_rank2_tiled_reg",
+      "priority": 52,
+      "when": ["rank3ByRank2ShapeOk or rank4ByRank2ShapeOk", "registerBlockedWidthOk", "dim(shapes.a, ranks.a - 2) >= tunables.TILED_REG_MIN_M", "dim(shapes.a, ranks.a - 1) >= tunables.TILED_REG_MIN_K", "dim(shapes.b, ranks.b - 1) >= tunables.TILED_REG_MIN_N", "ceilDiv(dim(shapes.y, ranks.y - 2), registerTile) * ceilDiv(dim(shapes.y, ranks.y - 1), registerTile) * outer(shapes.y, ranks.y - 2) >= tunables.TILED_REG_MIN_WORKGROUPS", "batchedRegDispatchFits", "tiledRegResourcesFit", "(dtypes.T == \"f32\" or dtypes.T == \"f16\")", "f16Ok(dtypes.T)"],
+      "derive": { "scalar": "dtypes.T", "rowCount": "foldedByRank2M" },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.BatchedByRank2TiledReg",
+          "shader": "matmul-tiled-general-reg.wgsl.jinja",
+          "derive": {
+            "K": "dim(shapes.a, ranks.a - 1)",
+            "bShape": "shapes.b",
+            "alpha": "1.0",
+            "aRank": "2",
+            "bRank": "ranks.b",
+            "transBatchA": "false"
+          },
+          "bindings": ["a", "b", "y", "params_rows"],
+          "dispatch": {
+            "x": "ceilDiv(dim(shapes.y, ranks.y - 1), registerTile)",
+            "y": "min(ceilDiv(rowCount, registerTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "z": "min(1, min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ]
+    },
+    {
+      "id": "batched4_broadcast_tiled_reg",
+      "priority": 52,
+      "when": ["rank4BroadcastShapeOk", "registerBlockedWidthOk", "rank4HasBroadcast", "dim(shapes.a, 2) >= tunables.TILED_REG_MIN_M", "dim(shapes.a, 3) >= tunables.TILED_REG_MIN_K", "dim(shapes.b, 3) >= tunables.TILED_REG_MIN_N", "ceilDiv(dim(shapes.y, 2), registerTile) * ceilDiv(dim(shapes.y, 3), registerTile) * dim(shapes.y, 0) * dim(shapes.y, 1) >= tunables.TILED_REG_MIN_WORKGROUPS", "batchedRegDispatchFits", "tiledRegResourcesFit", "(dtypes.T == \"f32\" or dtypes.T == \"f16\")", "f16Ok(dtypes.T)"],
+      "derive": { "scalar": "dtypes.T", "rowCount": "dim(shapes.a, ranks.a - 2)" },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.Batched4BroadcastTiledReg",
+          "shader": "matmul-tiled-general-reg.wgsl.jinja",
+          "derive": {
+            "aBatchShape": "prefix(shapes.a, ranks.a - 2)",
+            "K": "dim(shapes.a, ranks.a - 1)",
+            "bShape": "shapes.b",
+            "alpha": "1.0",
+            "aRank": "ranks.a",
+            "bRank": "ranks.b",
+            "transBatchA": "false"
+          },
+          "bindings": ["a", "b", "y", "params_rows"],
+          "dispatch": {
+            "x": "ceilDiv(dim(shapes.y, ranks.y - 1), registerTile)",
+            "y": "min(ceilDiv(rowCount, registerTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "z": "min(outer(shapes.y, ranks.y - 2), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ]
+    },
+    {
+      "id": "tiled_reg",
+      "priority": 51,
+      "when": ["rank2ShapeOk", "registerBlockedWidthOk", "ceilDiv(dim(shapes.a, 0), registerTile) * ceilDiv(dim(shapes.b, 1), registerTile) >= tunables.TILED_REG_LARGE_MIN_WORKGROUPS", "dim(shapes.b, 1) >= tunables.TILED_REG_RANK2_MIN_N", "dim(shapes.a, 1) >= tunables.TILED_REG_LARGE_MIN_K", "rank2RegDispatchFits", "tiledRegResourcesFit", "f16Ok(dtypes.T)"],
+      "derive": { "scalar": "dtypes.T", "rowCount": "dim(shapes.a, 0)" },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.TiledReg",
+          "shader": "matmul-tiled-general-reg.wgsl.jinja",
+          "derive": {
+            "K": "dim(shapes.a, ranks.a - 1)",
+            "bShape": "shapes.b",
+            "alpha": "1.0",
+            "aRank": "2",
+            "bRank": "ranks.b",
+            "transBatchA": "false"
+          },
+          "bindings": ["a", "b", "y", "params_rows"],
+          "dispatch": {
+            "x": "ceilDiv(dim(shapes.y, ranks.y - 1), registerTile)",
+            "y": "min(ceilDiv(rowCount, registerTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "z": "min(1, min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ]
+    },
+    {
+      "id": "tiled",
+      "priority": 50,
+      "when": ["rank2ShapeOk", "dim(shapes.a, 0) > 1", "rank2TiledDispatchFits", "tiledResourcesFit", "f16Ok(dtypes.T)"],
+      "derive": { "scalar": "dtypes.T", "rowCount": "dim(shapes.a, 0)" },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.Tiled",
+          "shader": "matmul-tiled-general.wgsl.jinja",
+          "derive": {
+            "K": "dim(shapes.a, ranks.a - 1)",
+            "bShape": "shapes.b",
+            "transA": "false",
+            "transB": "false",
+            "alpha": "1.0",
+            "aRank": "2",
+            "bRank": "ranks.b",
+            "transBatchA": "false",
+            "transBatchB": "false"
+          },
+          "bindings": ["a", "b", "y", "params_rows"],
+          "dispatch": {
+            "x": "ceilDiv(dim(shapes.y, ranks.y - 1), generalTile)",
+            "y": "min(ceilDiv(rowCount, generalTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "z": "min(1, min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ]
+    },
+    {
+      "id": "batched_tiled_reg",
+      "priority": 51,
+      "when": ["rank3BroadcastShapeOk or rank4BroadcastShapeOk", "registerBlockedWidthOk", "dim(shapes.a, ranks.a - 2) >= tunables.TILED_REG_LARGE_MIN_M", "dim(shapes.a, ranks.a - 1) >= tunables.TILED_REG_LARGE_MIN_K", "dim(shapes.b, ranks.b - 1) >= tunables.TILED_REG_LARGE_MIN_N", "ceilDiv(dim(shapes.y, ranks.y - 2), registerTile) * ceilDiv(dim(shapes.y, ranks.y - 1), registerTile) * (numel(shapes.y) / dim(shapes.y, ranks.y - 2) / dim(shapes.y, ranks.y - 1)) >= tunables.TILED_REG_LARGE_MIN_WORKGROUPS", "batchedRegDispatchFits", "tiledRegResourcesFit", "f16Ok(dtypes.T)"],
+      "derive": { "scalar": "dtypes.T", "rowCount": "dim(shapes.a, ranks.a - 2)" },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.BatchedTiledReg",
+          "shader": "matmul-tiled-general-reg.wgsl.jinja",
+          "derive": {
+            "aBatchShape": "prefix(shapes.a, ranks.a - 2)",
+            "K": "dim(shapes.a, ranks.a - 1)",
+            "bShape": "shapes.b",
+            "alpha": "1.0",
+            "aRank": "ranks.a",
+            "bRank": "ranks.b",
+            "transBatchA": "false"
+          },
+          "bindings": ["a", "b", "y", "params_rows"],
+          "dispatch": {
+            "x": "ceilDiv(dim(shapes.y, ranks.y - 1), registerTile)",
+            "y": "min(ceilDiv(rowCount, registerTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "z": "min(outer(shapes.y, ranks.y - 2), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ]
+    },
+    {
+      "id": "batched_tiled",
+      "priority": 50,
+      "when": ["rank3ShapeOk or rank4ShapeOk", "dim(shapes.a, ranks.a - 2) > 1", "batchedTiledNDispatchFits", "tiledResourcesFit", "f16Ok(dtypes.T)"],
+      "derive": { "scalar": "dtypes.T", "rowCount": "dim(shapes.a, ranks.a - 2)" },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.BatchedTiled",
+          "shader": "matmul-tiled-general.wgsl.jinja",
+          "derive": {
+            "aBatchShape": "prefix(shapes.a, ranks.a - 2)",
+            "K": "dim(shapes.a, ranks.a - 1)",
+            "bShape": "shapes.b",
+            "transA": "false",
+            "transB": "false",
+            "alpha": "1.0",
+            "aRank": "ranks.a",
+            "bRank": "ranks.b",
+            "transBatchA": "false",
+            "transBatchB": "false"
+          },
+          "bindings": ["a", "b", "y", "params_rows"],
+          "dispatch": {
+            "x": "ceilDiv(dim(shapes.y, ranks.y - 1), generalTile)",
+            "y": "min(ceilDiv(rowCount, generalTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "z": "min(outer(shapes.y, ranks.y - 2), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ]
+    },
+    {
+      "id": "folded_by_rank2_band_vec4",
+      "priority": 55,
+      "when": ["byRank2ShapeOk", "foldedByRank2M >= 2", "foldedByRank2M <= tunables.BAND_VEC4_MAX_ROWS", "foldedByRank2K > 0", "dim(shapes.b, 1) > 0", "dim(shapes.b, 1) % 4 == 0", "gemvWorkgroups <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "(dtypes.T == \"f32\" or dtypes.T == \"f16\")", "gemvResourcesFit", "f16Ok(dtypes.T)"],
+      "derive": { "batched": false, "M": "foldedByRank2M", "K": "foldedByRank2K", "N": "dim(shapes.b, 1)" },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.FoldedByRank2BandVec4",
+          "shader": "matmul-band-vec4.wgsl.jinja",
+          "bindings": ["a", "b_main", "y_main"],
+          "dispatch": { "x": "gemvWorkgroups" }
+        }
+      ]
+    },
+    {
+      "id": "batched3_by_rank2_subgroup_matrix",
+      "priority": 95,
+      "when": ["rank3ByRank2ShapeOk", "outer(shapes.y, ranks.y - 2) >= 1", "dim(shapes.a, ranks.a - 2) >= tunables.SUBGROUP_MATRIX_BATCH_MIN_M", "dim(shapes.a, ranks.a - 1) % subgroupTileRows == 0", "subgroupFloatTypeOk", "subgroupMatrixResourcesFit", "subgroupDispatchFits", "wave32Effective", "not foldedBandPreferred"],
+      "requires": {
+        "features": ["subgroups", "chromium-experimental-subgroup-matrix"],
+        "subgroupMatrixConfigs": [
+          { "componentType": "f16", "M": 8, "N": 8, "K": 8 },
+          { "componentType": "f32", "resultComponentType": "f32", "M": 8, "N": 8, "K": 8 }
+        ]
+      },
+      "derive": {
+        "hasBias": false,
+        "generalAddressing": true,
+        "tailSafe": "sgmatNTail",
+        "alpha": 1,
+        "rowCount": "foldedByRank2M",
+        "K": "dim(shapes.a, ranks.a - 1)",
+        "N": "dim(shapes.b, ranks.b - 1)"
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.Batched3ByRank2SubgroupMatrix",
+          "shader": "matmul-subgroup-matrix-ext.wgsl.jinja",
+          "derive": { "bShape": "shapes.b", "aRank": 2, "bRank": "ranks.b" },
+          "bindings": ["a", "b", "y", "params_rows"],
+          "dispatch": {
+            "x": "ceilDiv(dim(shapes.y, ranks.y - 1), subgroupTileCols)",
+            "y": "min(ceilDiv(rowCount, subgroupTileRows), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ],
+      "demoteWhen": ["sgmatNPaddingHigh"]
+    },
+    {
+      "id": "batched_subgroup_matrix",
+      "priority": 96,
+      "when": ["rank3ShapeOk or rank4ShapeOk", "outer(shapes.y, ranks.y - 2) >= 1", "dim(shapes.a, ranks.a - 2) >= tunables.SUBGROUP_MATRIX_BATCH_MIN_M", "dim(shapes.a, ranks.a - 1) % subgroupTileRows == 0", "subgroupFloatTypeOk", "subgroupMatrixResourcesFit", "subgroupDispatchFits", "wave32Effective", "not foldedBandPreferred"],
+      "requires": {
+        "features": ["subgroups", "chromium-experimental-subgroup-matrix"],
+        "subgroupMatrixConfigs": [
+          { "componentType": "f16", "M": 8, "N": 8, "K": 8 },
+          { "componentType": "f32", "resultComponentType": "f32", "M": 8, "N": 8, "K": 8 }
+        ]
+      },
+      "derive": {
+        "hasBias": false,
+        "generalAddressing": "sgmatNTail",
+        "tailSafe": "sgmatNTail",
+        "rowCount": "dim(shapes.a, ranks.a - 2)",
+        "K": "dim(shapes.a, ranks.a - 1)",
+        "N": "dim(shapes.b, ranks.b - 1)",
+        "batchCount": "outer(shapes.y, ranks.y - 2)"
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.BatchedSubgroupMatrix",
+          "shader": "matmul-subgroup-matrix-ext.wgsl.jinja",
+          "derive": {
+            "aBatchShape": "prefix(shapes.a, ranks.a - 2)",
+            "bShape": "shapes.b",
+            "aRank": "ranks.a",
+            "bRank": "ranks.b"
+          },
+          "bindings": ["a", "b", "y", "params_rows"],
+          "dispatch": {
+            "x": "ceilDiv(dim(shapes.y, ranks.y - 1), subgroupTileCols)",
+            "y": "min(ceilDiv(dim(shapes.y, ranks.y - 2), subgroupTileRows), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "z": "min(outer(shapes.y, ranks.y - 2), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ],
+      "demoteWhen": ["sgmatNPaddingHigh"]
+    },
+    {
+      "id": "rank2_notrans_f32_vec4_tiled_reg_splitk",
+      "priority": 56,
+      "when": ["rank2ShapeOk", "dtypes.T == \"f32\"", "dim(shapes.a, 0) >= 128", "dim(shapes.a, 1) > 0", "dim(shapes.a, 1) % 32 == 0", "dim(shapes.b, 1) >= 64", "dim(shapes.b, 1) % 4 == 0", "notransSplitK >= 2", "notransSplitTiles <= tunables.NOTRANS_SPLITK_MAX_TILES", "notransSplitTiles * notransSplitK >= tunables.NOTRANS_SPLITK_MIN_WORKGROUPS", "notransSplitK * numel(shapes.y) * 4 <= device.limits.maxStorageBufferBindingSize", "notransSplitK <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "ceilDiv(dim(shapes.a, 0), 128) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "ceilDiv(dim(shapes.b, 1), 64) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "notransVec4ResourcesFit", "not bandPreferred"],
+      "demoteWhen": ["rank2Vec4RegTileDemotedWidth"],
+      "derive": {
+        "scalar": "\"f32\"",
+        "rowCount": "dim(shapes.a, 0)",
+        "K": "dim(shapes.a, 1)",
+        "N": "dim(shapes.b, 1)",
+        "kTile": "32 if notransBk32StorageBytes <= device.limits.maxComputeWorkgroupStorageSize else 16",
+        "packedATile": true,
+        "splitK": "notransSplitK",
+        "kPerSplit": "dim(shapes.a, 1) / notransSplitK",
+        "split": "notransSplitK",
+        "workgroupSize": 256
+      },
+      "intermediates": [{ "id": "partials", "dtype": "float32", "shape": "[notransSplitK * numel(shapes.y)]" }],
+      "passes": [
+        {
+          "id": "partial",
+          "name": "MatMul.Rank2NoTransF32Vec4TiledRegSplitK",
+          "shader": "matmul-notrans-vec4-tiled-reg.wgsl.jinja",
+          "bindings": ["a_main", "b_main", "y_partial", "params_main"],
+          "dispatch": {
+            "x": "ceilDiv(dim(shapes.b, 1), 64)",
+            "y": "ceilDiv(dim(shapes.a, 0), 128)",
+            "z": "notransSplitK"
+          }
+        },
+        {
+          "id": "combine",
+          "name": "MatMul.Rank2NoTransF32Vec4TiledRegSplitKCombine",
+          "shader": "reduce-axis0-splitk-combine.wgsl.jinja",
+          "derive": { "op": "\"sum\"", "outputF16": false, "intMode": false },
+          "bindings": ["partials_f32", "y", "params"],
+          "dispatch": {
+            "x": "min(ceilDiv((numel(shapes.y)), (256)), 65535)",
+            "y": "ceilDiv(ceilDiv((numel(shapes.y)), (256)), 65535)",
+            "z": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "folded_rows_notrans_f32_vec4_tiled_reg",
+      "priority": 54,
+      "when": ["foldedRows3ShapeOk", "dtypes.T == \"f32\"", "subgroupWidth32NotExcluded", "foldedRowsM >= 128", "dim(shapes.a, 2) > 0", "dim(shapes.a, 2) % 32 == 0", "dim(shapes.b, 1) >= 64", "dim(shapes.b, 1) % 4 == 0", "ceilDiv(foldedRowsM, 128) * ceilDiv(dim(shapes.b, 1), 64) >= 32", "ceilDiv(foldedRowsM, 128) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "ceilDiv(dim(shapes.b, 1), 64) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "notransVec4ResourcesFit"],
+      "derive": {
+        "scalar": "\"f32\"",
+        "rowCount": "foldedRowsM",
+        "K": "dim(shapes.a, ranks.a - 1)",
+        "N": "dim(shapes.b, ranks.b - 1)",
+        "kTile": "32 if notransBk32StorageBytes <= device.limits.maxComputeWorkgroupStorageSize else 16",
+        "packedATile": true
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.Rank2NoTransF32Vec4TiledReg",
+          "shader": "matmul-notrans-vec4-tiled-reg.wgsl.jinja",
+          "bindings": ["a_main", "b_main", "y_main", "params_main"],
+          "dispatch": { "x": "ceilDiv(N, 64)", "y": "ceilDiv(rowCount, 128)" }
+        }
+      ]
+    },
+    {
+      "id": "rank2_notrans_f32_vec4_tiled_reg",
+      "priority": 52,
+      "when": ["rank2ShapeOk", "dtypes.T == \"f32\"", "dim(shapes.a, 0) >= 128", "dim(shapes.a, 1) > 0", "dim(shapes.a, 1) % 32 == 0", "dim(shapes.b, 1) >= 64", "dim(shapes.b, 1) % 4 == 0", "ceilDiv(dim(shapes.a, 0), 128) * ceilDiv(dim(shapes.b, 1), 64) >= tunables.NOTRANS_VEC4_MIN_BLOCKS", "ceilDiv(dim(shapes.a, 0), 128) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "ceilDiv(dim(shapes.b, 1), 64) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "notransVec4ResourcesFit"],
+      "demoteWhen": ["rank2Vec4RegTileDemotedWidth"],
+      "derive": {
+        "scalar": "\"f32\"",
+        "rowCount": "dim(shapes.a, 0)",
+        "K": "dim(shapes.a, ranks.a - 1)",
+        "N": "dim(shapes.b, ranks.b - 1)",
+        "kTile": "32 if notransBk32StorageBytes <= device.limits.maxComputeWorkgroupStorageSize else 16",
+        "packedATile": true
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.Rank2NoTransF32Vec4TiledReg",
+          "shader": "matmul-notrans-vec4-tiled-reg.wgsl.jinja",
+          "bindings": ["a_main", "b_main", "y_main", "params_main"],
+          "dispatch": { "x": "ceilDiv(N, 64)", "y": "ceilDiv(rowCount, 128)" }
+        }
+      ]
+    },
+    {
+      "id": "rank2_notrans_f32_vec4_tiled_reg_m64",
+      "priority": 52,
+      "when": ["rank2ShapeOk", "dtypes.T == \"f32\"", "dim(shapes.a, 0) >= 64", "dim(shapes.a, 1) > 0", "dim(shapes.a, 1) % 32 == 0", "dim(shapes.b, 1) >= 64", "dim(shapes.b, 1) % 4 == 0", "ceilDiv(dim(shapes.a, 0), 128) * ceilDiv(dim(shapes.b, 1), 64) < tunables.NOTRANS_VEC4_MIN_BLOCKS", "ceilDiv(dim(shapes.a, 0), 64) * ceilDiv(dim(shapes.b, 1), 64) >= tunables.NOTRANS_VEC4_M64_MIN_BLOCKS", "ceilDiv(dim(shapes.a, 0), 64) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "ceilDiv(dim(shapes.b, 1), 64) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "notransVec4ResourcesFit"],
+      "demoteWhen": ["vec4RegTileDemotedWidth"],
+      "derive": {
+        "scalar": "\"f32\"",
+        "rowCount": "dim(shapes.a, 0)",
+        "K": "dim(shapes.a, ranks.a - 1)",
+        "N": "dim(shapes.b, ranks.b - 1)",
+        "blockRows": 64,
+        "kTile": "32 if notransBk32StorageBytes <= device.limits.maxComputeWorkgroupStorageSize else 16",
+        "packedATile": true
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.Rank2NoTransF32Vec4TiledRegM64",
+          "shader": "matmul-notrans-vec4-tiled-reg.wgsl.jinja",
+          "bindings": ["a_main", "b_main", "y_main", "params_main"],
+          "dispatch": { "x": "ceilDiv(N, 64)", "y": "ceilDiv(rowCount, 64)" }
+        }
+      ]
+    },
+    {
+      "id": "batched_notrans_f32_vec4_tiled_reg",
+      "priority": 52,
+      "when": ["rank3ShapeOk or rank4ShapeOk", "dtypes.T == \"f32\"", "dim(shapes.a, ranks.a - 2) >= 64", "dim(shapes.a, ranks.a - 1) > 0", "dim(shapes.a, ranks.a - 1) % 32 == 0", "dim(shapes.b, ranks.b - 1) >= 64", "dim(shapes.b, ranks.b - 1) % 4 == 0", "batchedVec4Blocks >= tunables.NOTRANS_VEC4_M64_MIN_BLOCKS", "ceilDiv(dim(shapes.a, ranks.a - 2), batchedVec4BlockRows) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "ceilDiv(dim(shapes.b, ranks.b - 1), 64) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "outer(shapes.a, ranks.a - 2) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "notransVec4ResourcesFit"],
+      "demoteWhen": ["vec4RegTileDemotedWidth"],
+      "derive": {
+        "scalar": "\"f32\"",
+        "rowCount": "dim(shapes.a, ranks.a - 2)",
+        "K": "dim(shapes.a, ranks.a - 1)",
+        "N": "dim(shapes.b, ranks.b - 1)",
+        "blockRows": "batchedVec4BlockRows",
+        "batchStrides": true,
+        "kTile": "32 if notransBk32StorageBytes <= device.limits.maxComputeWorkgroupStorageSize else 16",
+        "packedATile": true
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.BatchedNoTransF32Vec4TiledReg",
+          "shader": "matmul-notrans-vec4-tiled-reg.wgsl.jinja",
+          "bindings": ["a_main", "b_main", "y_main", "params_main"],
+          "dispatch": {
+            "x": "ceilDiv(N, 64)",
+            "y": "ceilDiv(rowCount, blockRows)",
+            "z": "outer(shapes.a, ranks.a - 2)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "folded_rows_notrans_f16_vec4_tiled_reg",
+      "priority": 54,
+      "when": ["byRank2ShapeOk", "dtypes.T == \"f16\"", "foldedByRank2M >= 128", "foldedByRank2K > 0", "foldedByRank2K % 16 == 0", "dim(shapes.b, 1) >= 64", "dim(shapes.b, 1) % 4 == 0", "ceilDiv(foldedByRank2M, 128) * ceilDiv(dim(shapes.b, 1), 64) >= tunables.NOTRANS_VEC4_MIN_BLOCKS", "ceilDiv(foldedByRank2M, 128) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "ceilDiv(dim(shapes.b, 1), 64) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "notransVec4ResourcesFit"],
+      "requires": { "features": ["shader-f16"] },
+      "derive": {
+        "scalar": "\"f16\"",
+        "rowCount": "foldedByRank2M",
+        "K": "dim(shapes.a, ranks.a - 1)",
+        "N": "dim(shapes.b, ranks.b - 1)",
+        "kTile": "32 if K % 32 == 0 and notransBk32StorageBytes <= device.limits.maxComputeWorkgroupStorageSize else 16"
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.FoldedRowsNoTransF16Vec4TiledReg",
+          "shader": "matmul-notrans-vec4-tiled-reg.wgsl.jinja",
+          "bindings": ["a_main", "b_main", "y_main", "params_main"],
+          "dispatch": { "x": "ceilDiv(N, 64)", "y": "ceilDiv(rowCount, 128)" }
+        }
+      ]
+    },
+    {
+      "id": "rank2_notrans_f16_vec4_tiled_reg_wg8",
+      "priority": 53,
+      "when": ["rank2ShapeOk", "dtypes.T == \"f16\"", "dim(shapes.a, 0) >= 128", "dim(shapes.a, 1) > 0", "dim(shapes.a, 1) % 16 == 0", "dim(shapes.b, 1) >= 64", "dim(shapes.b, 1) % 4 == 0", "ceilDiv(dim(shapes.a, 0), 128) * ceilDiv(dim(shapes.b, 1), 64) >= tunables.NOTRANS_VEC4_MIN_BLOCKS", "ceilDiv(dim(shapes.a, 0), 128) * ceilDiv(dim(shapes.b, 1), 64) < tunables.NOTRANS_VEC4_F16_SMALL_TILE_MAX_BLOCKS", "ceilDiv(dim(shapes.a, 0), 32) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "ceilDiv(dim(shapes.b, 1), 32) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "notransSmallTileResourcesFit"],
+      "requires": { "features": ["shader-f16"] },
+      "derive": {
+        "scalar": "\"f16\"",
+        "rowCount": "dim(shapes.a, 0)",
+        "K": "dim(shapes.a, ranks.a - 1)",
+        "N": "dim(shapes.b, ranks.b - 1)",
+        "blockRows": 32,
+        "kTile": "32 if K % 32 == 0 and notransBk32StorageBytes <= device.limits.maxComputeWorkgroupStorageSize else 16",
+        "workgroupCols": 8,
+        "workgroupRows": 8,
+        "blockCols": 32,
+        "packedATile": true,
+        "vec4BTile": true
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.Rank2NoTransF16Vec4TiledRegWg8",
+          "shader": "matmul-notrans-vec4-tiled-reg.wgsl.jinja",
+          "bindings": ["a_main", "b_main", "y_main", "params_main"],
+          "dispatch": { "x": "ceilDiv(N, 32)", "y": "ceilDiv(rowCount, 32)" }
+        }
+      ]
+    },
+    {
+      "id": "rank2_notrans_f16_vec4_tiled_reg",
+      "priority": 52,
+      "when": ["rank2ShapeOk", "dtypes.T == \"f16\"", "dim(shapes.a, 0) >= 128", "dim(shapes.a, 1) > 0", "dim(shapes.a, 1) % 16 == 0", "dim(shapes.b, 1) >= 64", "dim(shapes.b, 1) % 4 == 0", "ceilDiv(dim(shapes.a, 0), 128) * ceilDiv(dim(shapes.b, 1), 64) >= tunables.NOTRANS_VEC4_MIN_BLOCKS", "ceilDiv(dim(shapes.a, 0), 128) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "ceilDiv(dim(shapes.b, 1), 64) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "notransVec4ResourcesFit"],
+      "requires": { "features": ["shader-f16"] },
+      "derive": {
+        "scalar": "\"f16\"",
+        "rowCount": "dim(shapes.a, 0)",
+        "K": "dim(shapes.a, ranks.a - 1)",
+        "N": "dim(shapes.b, ranks.b - 1)",
+        "kTile": "32 if K % 32 == 0 and notransBk32StorageBytes <= device.limits.maxComputeWorkgroupStorageSize else 16"
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.Rank2NoTransF16Vec4TiledReg",
+          "shader": "matmul-notrans-vec4-tiled-reg.wgsl.jinja",
+          "bindings": ["a_main", "b_main", "y_main", "params_main"],
+          "dispatch": { "x": "ceilDiv(N, 64)", "y": "ceilDiv(rowCount, 128)" }
+        }
+      ]
+    },
+    {
+      "id": "rank2_notrans_f16_vec4_tiled_reg_m64",
+      "priority": 52,
+      "when": ["rank2ShapeOk", "dtypes.T == \"f16\"", "dim(shapes.a, 0) >= 64", "dim(shapes.a, 1) > 0", "dim(shapes.a, 1) % 16 == 0", "dim(shapes.b, 1) >= 64", "dim(shapes.b, 1) % 4 == 0", "ceilDiv(dim(shapes.a, 0), 128) * ceilDiv(dim(shapes.b, 1), 64) < tunables.NOTRANS_VEC4_MIN_BLOCKS", "ceilDiv(dim(shapes.a, 0), 64) * ceilDiv(dim(shapes.b, 1), 64) >= tunables.NOTRANS_VEC4_M64_MIN_BLOCKS", "ceilDiv(dim(shapes.a, 0), 64) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "ceilDiv(dim(shapes.b, 1), 64) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "notransVec4ResourcesFit"],
+      "requires": { "features": ["shader-f16"] },
+      "derive": {
+        "scalar": "\"f16\"",
+        "rowCount": "dim(shapes.a, 0)",
+        "K": "dim(shapes.a, ranks.a - 1)",
+        "N": "dim(shapes.b, ranks.b - 1)",
+        "blockRows": 64,
+        "kTile": "32 if K % 32 == 0 and notransBk32StorageBytes <= device.limits.maxComputeWorkgroupStorageSize else 16"
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.Rank2NoTransF16Vec4TiledRegM64",
+          "shader": "matmul-notrans-vec4-tiled-reg.wgsl.jinja",
+          "bindings": ["a_main", "b_main", "y_main", "params_main"],
+          "dispatch": { "x": "ceilDiv(N, 64)", "y": "ceilDiv(rowCount, 64)" }
+        }
+      ]
+    },
+    {
+      "id": "batched_notrans_f16_vec4_tiled_reg_wg8",
+      "priority": 53,
+      "when": ["rank3ShapeOk or rank4ShapeOk", "dtypes.T == \"f16\"", "dim(shapes.a, ranks.a - 2) >= 64", "dim(shapes.a, ranks.a - 1) > 0", "dim(shapes.a, ranks.a - 1) % 16 == 0", "dim(shapes.b, ranks.b - 1) >= 64", "dim(shapes.b, ranks.b - 1) % 4 == 0", "batchedVec4Blocks128 >= tunables.NOTRANS_VEC4_MIN_BLOCKS", "batchedVec4Blocks128 < tunables.NOTRANS_VEC4_F16_SMALL_TILE_MAX_BLOCKS", "ceilDiv(dim(shapes.a, ranks.a - 2), 32) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "ceilDiv(dim(shapes.b, ranks.b - 1), 32) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "outer(shapes.a, ranks.a - 2) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "notransSmallTileResourcesFit"],
+      "requires": { "features": ["shader-f16"] },
+      "derive": {
+        "scalar": "\"f16\"",
+        "rowCount": "dim(shapes.a, ranks.a - 2)",
+        "K": "dim(shapes.a, ranks.a - 1)",
+        "N": "dim(shapes.b, ranks.b - 1)",
+        "blockRows": 32,
+        "batchStrides": true,
+        "kTile": "32 if K % 32 == 0 and notransBk32StorageBytes <= device.limits.maxComputeWorkgroupStorageSize else 16",
+        "workgroupCols": 8,
+        "workgroupRows": 8,
+        "blockCols": 32,
+        "packedATile": true,
+        "vec4BTile": true
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.BatchedNoTransF16Vec4TiledRegWg8",
+          "shader": "matmul-notrans-vec4-tiled-reg.wgsl.jinja",
+          "bindings": ["a_main", "b_main", "y_main", "params_main"],
+          "dispatch": { "x": "ceilDiv(N, 32)", "y": "ceilDiv(rowCount, 32)", "z": "outer(shapes.a, ranks.a - 2)" }
+        }
+      ]
+    },
+    {
+      "id": "batched_notrans_f16_vec4_tiled_reg",
+      "priority": 52,
+      "when": ["rank3ShapeOk or rank4ShapeOk", "dtypes.T == \"f16\"", "dim(shapes.a, ranks.a - 2) >= 64", "dim(shapes.a, ranks.a - 1) > 0", "dim(shapes.a, ranks.a - 1) % 16 == 0", "dim(shapes.b, ranks.b - 1) >= 64", "dim(shapes.b, ranks.b - 1) % 4 == 0", "batchedVec4Blocks >= tunables.NOTRANS_VEC4_M64_MIN_BLOCKS", "ceilDiv(dim(shapes.a, ranks.a - 2), batchedVec4BlockRows) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "ceilDiv(dim(shapes.b, ranks.b - 1), 64) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "outer(shapes.a, ranks.a - 2) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "notransVec4ResourcesFit"],
+      "requires": { "features": ["shader-f16"] },
+      "derive": {
+        "scalar": "\"f16\"",
+        "rowCount": "dim(shapes.a, ranks.a - 2)",
+        "K": "dim(shapes.a, ranks.a - 1)",
+        "N": "dim(shapes.b, ranks.b - 1)",
+        "blockRows": "batchedVec4BlockRows",
+        "batchStrides": true,
+        "kTile": "32 if K % 32 == 0 and notransBk32StorageBytes <= device.limits.maxComputeWorkgroupStorageSize else 16"
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.BatchedNoTransF16Vec4TiledReg",
+          "shader": "matmul-notrans-vec4-tiled-reg.wgsl.jinja",
+          "bindings": ["a_main", "b_main", "y_main", "params_main"],
+          "dispatch": {
+            "x": "ceilDiv(N, 64)",
+            "y": "ceilDiv(rowCount, blockRows)",
+            "z": "outer(shapes.a, ranks.a - 2)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "scalar",
+      "when": ["rank2ShapeOk", "f16Ok(dtypes.T)"],
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul",
+          "shader": "matmul.wgsl.jinja",
+          "bindings": ["a", "b", "y", "params_rows_cols_k"],
+          "dispatch": {
+            "x": "min(ceilDiv(dim(shapes.y, 1), fallbackTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "y": "min(ceilDiv((dim(shapes.y, 0)), (fallbackTile)), DISPATCH_FOLD_WIDTH)",
+            "z": "ceilDiv(ceilDiv((dim(shapes.y, 0)), (fallbackTile)), DISPATCH_FOLD_WIDTH)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "rank2_m1_vector_matrix_tail4",
+      "priority": 60,
+      "when": ["rank2ShapeOk", "dim(shapes.a, 0) == 1", "dim(shapes.y, 0) == 1", "dim(shapes.b, 1) > 0", "dim(shapes.b, 1) % 4 != 0", "dtypes.T == \"f32\"", "tailWorkgroupFits", "f16Ok(dtypes.T)"],
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.Rank2M1VectorMatrixTail4",
+          "shader": "matmul-vector-matrix-tail.wgsl.jinja",
+          "bindings": ["a", "b", "y", "params_n_k"],
+          "dispatch": {
+            "x": "min(ceilDiv((ceil(dim(shapes.b, 1) / 4)), (tailWorkgroupSize)), 65535)",
+            "y": "ceilDiv(ceilDiv((ceil(dim(shapes.b, 1) / 4)), (tailWorkgroupSize)), 65535)",
+            "z": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "rank2_m1_vector_matrix_tail1_f16",
+      "priority": 60,
+      "when": ["rank2ShapeOk", "dim(shapes.a, 0) == 1", "dim(shapes.y, 0) == 1", "dim(shapes.b, 1) > 0", "dim(shapes.b, 1) % 4 != 0", "dtypes.T == \"f16\"", "tailWorkgroupFits"],
+      "demoteWhen": ["narrowM1TailRegPreferred"],
+      "requires": { "features": ["shader-f16"] },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.Rank2M1VectorMatrixTail1F16",
+          "shader": "matmul-vector-matrix-tail.wgsl.jinja",
+          "bindings": ["a", "b", "y", "params_n_k"],
+          "dispatch": {
+            "x": "min(ceilDiv((dim(shapes.b, 1)), (tailWorkgroupSize)), 65535)",
+            "y": "ceilDiv(ceilDiv((dim(shapes.b, 1)), (tailWorkgroupSize)), 65535)",
+            "z": 1
+          }
+        }
+      ],
+      "derive": {
+        "tailUnroll": "min(8, pow2ceil(max(1, tunables.TAIL_K_PREFETCH)), max(1, pow2ceil(dim(shapes.a, 1) + 1) / 2))",
+        "tailHasRemainder": "dim(shapes.a, 1) % tailUnroll != 0"
+      }
+    },
+    {
+      "id": "rank2_band_vec4_splitk",
+      "priority": 56,
+      "when": ["rank2BandSplitEligible"],
+      "derive": {
+        "gemvSlices": "tunables.BAND_SPLIT_SLICES",
+        "batched": false,
+        "M": "dim(shapes.a, 0)",
+        "K": "dim(shapes.a, 1)",
+        "N": "dim(shapes.b, 1)",
+        "kSplits": "bandSplitK",
+        "split": "bandSplitK",
+        "workgroupSize": 256
+      },
+      "intermediates": [{ "id": "partials", "dtype": "float32", "shape": "[bandSplitK * numel(shapes.y)]" }],
+      "passes": [
+        {
+          "id": "partial",
+          "name": "MatMul.Rank2BandVec4SplitK",
+          "shader": "matmul-band-vec4.wgsl.jinja",
+          "bindings": ["a", "b_main", "y_partial"],
+          "dispatch": { "x": "gemvWorkgroups", "y": "bandSplitK" }
+        },
+        {
+          "id": "combine",
+          "name": "MatMul.Rank2BandVec4SplitKCombine",
+          "shader": "reduce-axis0-splitk-combine.wgsl.jinja",
+          "derive": { "op": "\"sum\"", "outputF16": "dtypes.T == \"f16\"", "intMode": false },
+          "bindings": ["partials_f32", "y", "params"],
+          "dispatch": {
+            "x": "min(ceilDiv((numel(shapes.y)), (256)), 65535)",
+            "y": "ceilDiv(ceilDiv((numel(shapes.y)), (256)), 65535)",
+            "z": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "rank2_band_vec4",
+      "priority": 55,
+      "when": ["rank2ShapeOk", "dim(shapes.a, 0) >= 2", "dim(shapes.a, 0) <= tunables.BAND_VEC4_MAX_ROWS", "dim(shapes.a, 1) > 0", "dim(shapes.b, 1) > 0", "dim(shapes.b, 1) % 4 == 0", "gemvWorkgroups <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "(dtypes.T == \"f32\" or dtypes.T == \"f16\")", "gemvResourcesFit", "f16Ok(dtypes.T)"],
+      "derive": { "batched": false, "M": "dim(shapes.a, 0)", "K": "dim(shapes.a, 1)", "N": "dim(shapes.b, 1)" },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.Rank2BandVec4",
+          "shader": "matmul-band-vec4.wgsl.jinja",
+          "bindings": ["a", "b_main", "y_main"],
+          "dispatch": { "x": "gemvWorkgroups" }
+        }
+      ]
+    },
+    {
+      "id": "batched_band_vec4",
+      "priority": 55,
+      "when": ["rank3ShapeOk or rank4ShapeOk", "dim(shapes.a, ranks.a - 2) >= 2", "dim(shapes.a, ranks.a - 2) <= tunables.BAND_VEC4_MAX_ROWS", "dim(shapes.a, ranks.a - 1) > 0", "dim(shapes.b, ranks.b - 1) > 0", "dim(shapes.b, ranks.b - 1) % 4 == 0", "ceilDiv(dim(shapes.b, ranks.b - 1), vec4OutputTile) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "outer(shapes.y, ranks.y - 2) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "bandBatchedWorkgroups >= tunables.BAND_BATCHED_MIN_WORKGROUPS", "(dtypes.T == \"f32\" or dtypes.T == \"f16\")", "bandBatchedResourcesFit", "f16Ok(dtypes.T)"],
+      "derive": {
+        "gemvSlices": "bandBatchedSlices",
+        "batched": true,
+        "M": "dim(shapes.a, ranks.a - 2)",
+        "K": "dim(shapes.a, ranks.a - 1)",
+        "N": "dim(shapes.b, ranks.b - 1)"
+      },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.BatchedBandVec4",
+          "shader": "matmul-band-vec4.wgsl.jinja",
+          "bindings": ["a", "b_main", "y_main"],
+          "dispatch": {
+            "x": "ceilDiv(dim(shapes.b, ranks.b - 1), vec4OutputTile)",
+            "y": "outer(shapes.y, ranks.y - 2)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "vector_matrix_vec4",
+      "priority": 61,
+      "when": ["vectorMatrixShapeOk or (rank2ShapeOk and dim(shapes.a, 0) == 1) or (byRank2ShapeOk and foldedByRank2M == 1 and foldedByRank2K > 0)", "dim(shapes.b, 1) > 0", "dim(shapes.b, 1) % 4 == 0", "gemvWorkgroups <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "(dtypes.T == \"f32\" or dtypes.T == \"f16\")", "gemvResourcesFit", "f16Ok(dtypes.T)"],
+      "derive": { "unrollK2": "dtypes.T == \"f16\" and ranks.a >= 2" },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.VectorMatrixVec4",
+          "shader": "matmul-vector-matrix-vec4.wgsl.jinja",
+          "bindings": ["a", "b_main", "y_main", "params_k_n4"],
+          "dispatch": { "x": "gemvWorkgroups" }
+        }
+      ]
+    },
+    {
+      "id": "matrix_vector_tail_subgroup",
+      "priority": 46,
+      "when": ["matrixVectorShapeOk", "dim(shapes.a, 1) >= tunables.GEMV_PARALLEL_MIN_K", "dim(shapes.a, 1) % 4 != 0", "ceilDiv(dim(shapes.a, 0), min(device.limits.maxComputeWorkgroupsPerDimension, 65535)) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "subgroupRowFoldOk", "gemvRowResourcesFit", "(dtypes.T == \"f32\" or dtypes.T == \"f16\")", "f16Ok(dtypes.T)"],
+      "requires": { "features": ["subgroups"] },
+      "derive": { "packedInput": false },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.MatrixVectorTailSubgroup",
+          "shader": "matmul-matrix-vector-subgroup.wgsl.jinja",
+          "bindings": ["a", "b", "y", "params_m_k"],
+          "dispatch": { "x": "min(dim(shapes.a, 0), 65535)", "y": "ceilDiv(dim(shapes.a, 0), 65535)", "z": 1 }
+        }
+      ]
+    },
+    {
+      "id": "matrix_vector_tail_nosg",
+      "priority": 45,
+      "when": ["matrixVectorShapeOk", "dim(shapes.a, 1) >= tunables.GEMV_PARALLEL_MIN_K", "dim(shapes.a, 1) % 4 != 0", "ceilDiv(dim(shapes.a, 0), min(device.limits.maxComputeWorkgroupsPerDimension, 65535)) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "(dtypes.T == \"f32\" or dtypes.T == \"f16\")", "gemvRowResourcesFit", "f16Ok(dtypes.T)"],
+      "derive": { "packedInput": false, "useSubgroups": false },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.MatrixVectorTailNoSg",
+          "shader": "matmul-matrix-vector-subgroup.wgsl.jinja",
+          "bindings": ["a", "b", "y", "params_m_k"],
+          "dispatch": { "x": "min(dim(shapes.a, 0), 65535)", "y": "ceilDiv(dim(shapes.a, 0), 65535)", "z": 1 }
+        }
+      ]
+    },
+    {
+      "id": "matrix_vector_subgroup",
+      "priority": 45,
+      "when": ["matrixVectorShapeOk", "dim(shapes.a, 0) > 0", "ceilDiv(dim(shapes.a, 0), min(device.limits.maxComputeWorkgroupsPerDimension, 65535)) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "dim(shapes.a, 1) % 4 == 0", "subgroupRowFoldOk", "gemvRowResourcesFit", "(dtypes.T == \"f32\" or dtypes.T == \"f16\")", "f16Ok(dtypes.T)"],
+      "requires": { "features": ["subgroups"] },
+      "derive": { "packedInput": true },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.MatrixVectorSubgroup",
+          "shader": "matmul-matrix-vector-subgroup.wgsl.jinja",
+          "bindings": ["a_main", "b_main", "y", "params_m_k4"],
+          "dispatch": { "x": "min(dim(shapes.a, 0), 65535)", "y": "ceilDiv(dim(shapes.a, 0), 65535)", "z": 1 }
+        }
+      ]
+    },
+    {
+      "id": "matrix_vector_nosg",
+      "priority": 44,
+      "when": ["matrixVectorShapeOk", "dim(shapes.a, 0) > 0", "ceilDiv(dim(shapes.a, 0), min(device.limits.maxComputeWorkgroupsPerDimension, 65535)) <= min(device.limits.maxComputeWorkgroupsPerDimension, 65535)", "dim(shapes.a, 1) % 4 == 0", "gemvRowResourcesFit", "(dtypes.T == \"f32\" or dtypes.T == \"f16\")", "f16Ok(dtypes.T)"],
+      "derive": { "packedInput": true, "useSubgroups": false },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.MatrixVectorNoSg",
+          "shader": "matmul-matrix-vector-subgroup.wgsl.jinja",
+          "bindings": ["a_main", "b_main", "y", "params_m_k4"],
+          "dispatch": { "x": "min(dim(shapes.a, 0), 65535)", "y": "ceilDiv(dim(shapes.a, 0), 65535)", "z": 1 }
+        }
+      ]
+    },
+    {
+      "id": "dot_splitk",
+      "priority": 41,
+      "when": ["dotShapeOk", "(dtypes.T == \"f32\" or dtypes.T == \"f16\")", "f16Ok(dtypes.T)", "dim(shapes.a, 0) >= tunables.DOT_SPLIT_MIN_K", "dim(shapes.a, 0) % 4 == 0", "dotSplitResourcesFit"],
+      "derive": {
+        "dotVec": "\"vec4<\" ~ dtypes.T ~ \">\"",
+        "workgroupSize": "tunables.DOT_WORKGROUP_SIZE",
+        "split": "dotSplitCount"
+      },
+      "intermediates": [{ "id": "partials", "dtype": "float32", "shape": "[dotSplitCount]" }],
+      "passes": [
+        {
+          "id": "split_dot",
+          "name": "MatMul.DotSplitK",
+          "shader": "dot-splitk-partial.wgsl.jinja",
+          "bindings": [
+            { "arg": "a", "elementType": "$dotVec" },
+            { "arg": "b", "elementType": "$dotVec" },
+            "partials",
+            { "name": "params", "struct": [{ "name": "count4", "type": "u32", "value": "dim(shapes.a, 0) / 4" }] }
+          ],
+          "dispatch": { "x": "dotSplitCount" }
+        },
+        {
+          "id": "combine",
+          "name": "MatMul.DotSplitKCombine",
+          "shader": "reduce-axis0-splitk-combine.wgsl.jinja",
+          "derive": { "op": "\"sum\"", "outputF16": "dtypes.T == \"f16\"" },
+          "bindings": [
+            "partials_f32",
+            "y",
+            { "name": "params", "struct": [{ "name": "cols", "type": "u32", "value": "1" }] }
+          ],
+          "dispatch": { "x": 1 }
+        }
+      ]
+    },
+    {
+      "id": "dot",
+      "priority": 40,
+      "when": ["dotShapeOk", "f16Ok(dtypes.T)", "tunables.DOT_WORKGROUP_SIZE <= deviceWorkgroupCap", "tunables.DOT_WORKGROUP_SIZE * 4 <= device.limits.maxComputeWorkgroupStorageSize"],
+      "supersededBy": ["dot_splitk"],
+      "derive": { "workgroupSize": "tunables.DOT_WORKGROUP_SIZE" },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.Dot",
+          "shader": "matmul-dot.wgsl.jinja",
+          "bindings": [
+            "a",
+            "b",
+            "y",
+            { "name": "params", "struct": [{ "name": "K", "type": "u32", "value": "dim(shapes.a, 0)" }] }
+          ],
+          "dispatch": { "x": 1 }
+        }
+      ]
+    },
+    {
+      "id": "batched_by_rank2",
+      "priority": 35,
+      "when": ["rank3ByRank2ShapeOk or rank4ByRank2ShapeOk", "f16Ok(dtypes.T)"],
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.BatchedByRank2",
+          "shader": "matmul-batched.wgsl.jinja",
+          "bindings": ["a", "b", "y", "params__uniform"],
+          "dispatch": {
+            "x": "min(ceilDiv(dim(shapes.y, ranks.y - 1), fallbackTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "y": "min(ceilDiv(dim(shapes.y, ranks.y - 2), fallbackTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "z": "min(outer(shapes.y, ranks.y - 2), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ]
+    },
+    {
+      "id": "rank2_by_batched",
+      "priority": 35,
+      "when": ["rank2ByRank3ShapeOk or rank2ByRank4ShapeOk", "f16Ok(dtypes.T)"],
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.Rank2ByBatched",
+          "shader": "matmul-batched.wgsl.jinja",
+          "bindings": ["a", "b", "y", "params__uniform"],
+          "dispatch": {
+            "x": "min(ceilDiv(dim(shapes.y, ranks.y - 1), fallbackTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "y": "min(ceilDiv(dim(shapes.y, ranks.y - 2), fallbackTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "z": "min(outer(shapes.y, ranks.y - 2), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ]
+    },
+    {
+      "id": "batched_broadcast",
+      "priority": 35,
+      "when": ["rank3BroadcastShapeOk or rank4BroadcastShapeOk", "f16Ok(dtypes.T)"],
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.Batched.Broadcast",
+          "shader": "matmul-batched.wgsl.jinja",
+          "bindings": ["a", "b", "y", "params__uniform"],
+          "dispatch": {
+            "x": "min(ceilDiv(dim(shapes.y, ranks.y - 1), fallbackTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "y": "min(ceilDiv(dim(shapes.y, ranks.y - 2), fallbackTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "z": "min(outer(shapes.y, ranks.y - 2), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ]
+    },
+    {
+      "id": "batched5_broadcast",
+      "priority": 36,
+      "when": ["rank5BroadcastShapeOk", "f16Ok(dtypes.T)"],
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.Batched5.Broadcast",
+          "shader": "matmul-batched.wgsl.jinja",
+          "bindings": ["a", "b", "y", "params__uniform"],
+          "dispatch": {
+            "x": "min(ceilDiv(dim(shapes.y, ranks.y - 1), fallbackTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "y": "min(ceilDiv(dim(shapes.y, ranks.y - 2), fallbackTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "z": "min(outer(shapes.y, ranks.y - 2), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ]
+    },
+    {
+      "id": "batched3_by_batched4_padded_a",
+      "priority": 35,
+      "when": ["rank3ByRank4PaddedShapeOk", "f16Ok(dtypes.T)"],
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.Batched3ByBatched4PaddedA",
+          "shader": "matmul-batched.wgsl.jinja",
+          "bindings": ["a", "b", "y", "params__uniform"],
+          "dispatch": {
+            "x": "min(ceilDiv(dim(shapes.y, ranks.y - 1), fallbackTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "y": "min(ceilDiv(dim(shapes.y, ranks.y - 2), fallbackTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "z": "min(outer(shapes.y, ranks.y - 2), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ]
+    },
+    {
+      "id": "batched4_by_batched3_padded_b",
+      "priority": 35,
+      "when": ["rank4ByRank3PaddedShapeOk", "f16Ok(dtypes.T)"],
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.Batched4ByBatched3PaddedB",
+          "shader": "matmul-batched.wgsl.jinja",
+          "bindings": ["a", "b", "y", "params__uniform"],
+          "dispatch": {
+            "x": "min(ceilDiv(dim(shapes.y, ranks.y - 1), fallbackTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "y": "min(ceilDiv(dim(shapes.y, ranks.y - 2), fallbackTile), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))",
+            "z": "min(outer(shapes.y, ranks.y - 2), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ]
+    },
+    {
+      "id": "vector_matrix",
+      "priority": 40,
+      "when": ["vectorMatrixShapeOk", "f16Ok(dtypes.T)"],
+      "derive": { "vectorOnLeft": true },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.VectorMatrix",
+          "shader": "matmul-vector-product.wgsl.jinja",
+          "bindings": ["a", "b", "y", "params_n_k"],
+          "dispatch": {
+            "x": "min(ceilDiv((dim(shapes.y, 0)), (fallbackTile)), 65535)",
+            "y": "ceilDiv(ceilDiv((dim(shapes.y, 0)), (fallbackTile)), 65535)",
+            "z": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "matrix_vector",
+      "priority": 40,
+      "when": ["matrixVectorShapeOk", "f16Ok(dtypes.T)"],
+      "derive": { "vectorOnLeft": false },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.MatrixVector",
+          "shader": "matmul-vector-product.wgsl.jinja",
+          "bindings": ["a", "b", "y", "params_m_k"],
+          "dispatch": {
+            "x": "min(ceilDiv((dim(shapes.y, 0)), (fallbackTile)), 65535)",
+            "y": "ceilDiv(ceilDiv((dim(shapes.y, 0)), (fallbackTile)), 65535)",
+            "z": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "batched_by_vector",
+      "priority": 35,
+      "when": ["batchedByVectorShapeOk", "f16Ok(dtypes.T)"],
+      "derive": { "vectorOnLeft": false },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.BatchedByVector",
+          "shader": "matmul-batched-vector.wgsl.jinja",
+          "bindings": ["a", "b", "y", "params_batched_vector"],
+          "dispatch": {
+            "x": "min(ceilDiv((dim(shapes.y, ranks.y - 1)), (fallbackTile)), DISPATCH_FOLD_WIDTH)",
+            "y": "ceilDiv(ceilDiv((dim(shapes.y, ranks.y - 1)), (fallbackTile)), DISPATCH_FOLD_WIDTH)",
+            "z": "min(outer(shapes.y, ranks.y - 1), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ]
+    },
+    {
+      "id": "vector_by_batched",
+      "priority": 35,
+      "when": ["vectorByBatchedShapeOk", "f16Ok(dtypes.T)"],
+      "derive": { "vectorOnLeft": true },
+      "passes": [
+        {
+          "id": "main",
+          "name": "MatMul.VectorByBatched",
+          "shader": "matmul-batched-vector.wgsl.jinja",
+          "bindings": ["a", "b", "y", "params_batched_vector"],
+          "dispatch": {
+            "x": "min(ceilDiv((dim(shapes.y, ranks.y - 1)), (fallbackTile)), DISPATCH_FOLD_WIDTH)",
+            "y": "ceilDiv(ceilDiv((dim(shapes.y, ranks.y - 1)), (fallbackTile)), DISPATCH_FOLD_WIDTH)",
+            "z": "min(outer(shapes.y, ranks.y - 1), min(device.limits.maxComputeWorkgroupsPerDimension, 65535))"
+          }
+        }
+      ]
+    }
+  ]
+}
