@@ -71,7 +71,9 @@ def main() -> None:
         elif f.name == gguf.Keys.General.NAME:
             val = f"{val} [tail L={L}]"
         elif isinstance(val, list) and len(val) in (n_all, n_trunk) and not f.name.startswith("tokenizer."):
-            sys.exit(f"per-layer array {f.name} (len {len(val)}) - slicing not implemented")
+            # per-layer array (e.g. attention.recurrent_layers, which newer converters write): the loader requires its length
+            # to equal block_count, so keep the tail's trunk layers, then the NextN entries if those blocks are kept
+            val = val[L:n_trunk] + (val[n_trunk:] if args.keep_mtp else [])
         w.add_key_value(f.name, val, val_type, sub_type=sub_type)
     w.add_uint32("split.layer_start", L)
     w.add_uint32("split.n_layer_full", n_trunk)
