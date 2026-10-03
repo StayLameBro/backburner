@@ -1,0 +1,3 @@
+<|im_start|>user
+Explain in two sentences why the sky is blue.<|im_end|>
+<|im_start|>assistant
