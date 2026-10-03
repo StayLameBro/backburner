@@ -45,24 +45,29 @@ A head-less tail fails serve.sh's startup warmup: `worker returned 0 logits ... 
 |---|---|
 | Mac GPU-mapped weights | layers 0-19: 2.24 GiB |
 | Mac KV + recurrent state | 170 + 47 MiB (5 attention + 15 GDN layers, vs 544 + 150 for all 64) |
-| Mac wired after load | +2.54 to +2.57 GiB; server footprint ~410-460 MB; no swap growth |
-| Phone | 8,510-8,820 MiB system wired with the Mac connected; the app's gate is 9,100 |
+| Mac wired after load | +2.55 GiB; server footprint ~410 MB; no swap growth |
+| Phone | 8,600-8,700 MiB system wired with the Mac connected, under our 9,100 MiB safety margin (below serve.sh's 9,400 cap) |
 
-L=20 is the lowest L that fits the phone at IQ2_XS: L=16 projects over 9,100. **Headroom on the phone is ~300 MiB**, and
-its system-wide wired reading is noisy (single readings up to 9,700 with nothing jetsammed), so don't go lower.
+L=20 is the lowest L that fits the phone at IQ2_XS: L=16 projects to ~9,300 MiB: over our margin and close to the cap.
+**Headroom on the phone is ~300 MiB**, and its system-wide wired reading is noisy (single readings up to 9,700 with nothing
+jetsammed), so don't go lower.
 
-## Measured (MacBook Neo A18 Pro 8 GB + iPhone Air A19 Pro 12 GB, USB 2 cable, iOS 27.2 beta, app v0.0.3)
+## Measured
 
-Every run starts with the phone at thermal ≤ 1 **and** the Mac at thermal 0, at least 120 s after the last request. Both
-devices are fanless, and either one warm slows the run by a third or more.
+MacBook Neo (A18 Pro, 8 GB, fanless, macOS 27.0) + iPhone Air (A19 Pro, 12 GB, iOS 27.2 beta, app v0.0.3 via AltStore),
+USB-C cable at USB 2 speed (the Air's port). Both devices are fanless, so a run only counts if it started with the phone at
+thermal ≤ 1 and the Mac at thermal 0, at least 120 s after the last request.
 
-| | tok/s |
-|---|---|
-| decode, short prompt (128 tokens) | 3.97 / 4.02 / 4.00 |
-| decode after a 4k prompt (prefill, cool down, append + 128) | 3.73 / 3.85 / 3.88 |
-| prefill 2k, cold | 62.2 / 63.2 / 62.2 |
+| | this branch | earlier session, same engine code |
+|---|---|---|
+| decode, short prompt (128 tokens) | 3.94 / 3.90 tok/s | 3.97 / 4.02 / 4.00 |
+| decode after a 4k prompt (true append) | 3.83 / 3.80 | 3.73 / 3.85 / 3.88 |
+| prefill 2k, cold | 63.6 / 65.1 / 64.3 | 62.2 / 63.2 / 62.2 |
 
-- **Per token:** Mac ~87 ms (layers 0-19) + phone ~135 ms (layers 20-63 + head) + link ~28 ms.
+- **The spread follows the phone's temperature.** Once it reaches thermal 2, decode drops to ~3.5 tok/s, and a single 4k
+  prefill gets it there.
+- **Per token:** Mac ~90 ms (layers 0-19) + phone ~136 ms (layers 20-63 + head) + link ~28 ms (1 MB of logits back over
+  USB 2). Without the GPU warm, the Mac's share is ~99 ms.
 - **Prefill is Mac-bound:** ~3.7 s per 256-token ubatch on the Mac, ~2.4 s on the phone (pipelined).
 - **Same answers:** against the same model run on the Mac alone, teacher-forced over 64 tokens on three prompts (19, 1,059
   and 5,275 tokens): top-1 agreement 93.8% / 100% / 100%, mean KL ≤ 0.0074. The four misses are near-ties in the
