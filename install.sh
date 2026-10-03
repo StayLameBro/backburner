@@ -7,7 +7,7 @@
 #   3. the Mac engine from the latest release (BUILD=1: build from source instead; needs cmake and the Xcode command line tools)
 #   4. a Python venv (.venv) with numpy for the model tools
 #   5. the models in ~/Models (MODELS=...): Qwen3.8-27B IQ4_XS (15.5 GB) and the DFlash2 draft model (converted here, ~1.3 GB)
-#   6. the phone's half of the model (layers 41-64, ~6.9 GB) and the phone's Neural Engine page template
+#   6. the phone's half of the model (layers 41-64, ~5.1 GB) and the phone's Neural Engine page template
 #   7. the `backburner` command in ~/.local/bin
 set -euo pipefail
 REPO=StayLameBro/backburner
@@ -119,7 +119,7 @@ fi
 TAIL=$MODELS/tail-iq4xs-L$TAIL_L-nohead.gguf
 if [ ! -s "$TAIL" ]; then
   say "making the phone's half of the model (layers $((TAIL_L + 1))-64)"
-  python3 scripts/split-gguf.py "$MODEL" "$TAIL" -L "$TAIL_L"
+  python3 scripts/split-gguf.py "$MODEL" "$TAIL" -L "$TAIL_L" --no-head
 fi
 TMPL=build/ane-kv/tmpl/kv_N16384_R48_fp16_pfix_cinput.mlmodelc
 if [ ! -d "$TMPL" ]; then

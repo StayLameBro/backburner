@@ -165,8 +165,8 @@ scripts/make-drafter.sh ~/Models/qwen38-27b-dflash2 ~/Models/dflash2-v2-q4km-sel
 #      DEVELOPMENT_TEAM=<your team id> UDID=<your iPhone's UDID> scripts/build-iphone.sh
 pip3 install coremltools      # serve.sh builds the phone's Neural Engine page model with it, once
 
-# 4. the phone's half of the model (layers 41-64, ~6.9 GB), copied over the cable
-python3 scripts/split-gguf.py ~/Models/Qwen3.8-27B-IQ4_XS.gguf ~/Models/tail-iq4xs-L40-nohead.gguf -L 40
+# 4. the phone's half of the model (layers 41-64, ~5.1 GB; the Mac computes the logits, so no head), copied over the cable
+python3 scripts/split-gguf.py ~/Models/Qwen3.8-27B-IQ4_XS.gguf ~/Models/tail-iq4xs-L40-nohead.gguf -L 40 --no-head
 scripts/phone-tail.sh L40
 
 # 5. after every reboot: let the GPU keep the model wired (macOS resets this limit)

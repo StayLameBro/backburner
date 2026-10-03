@@ -1,7 +1,7 @@
 #!/bin/bash
 # phone-tail.sh - put a split-prefill tail on the wired iPhone, restart Backburner, confirm which tail it loaded.
 #   scripts/phone-tail.sh                      # show the loaded tail + phone memory, change nothing
-#   scripts/phone-tail.sh L40                  # ~/Models/tail-iq4xs-L40-nohead.gguf (made by scripts/split-gguf.py, 6.9 GB)
+#   scripts/phone-tail.sh L40                  # ~/Models/tail-iq4xs-L40-nohead.gguf (made by scripts/split-gguf.py --no-head, 5.1 GB)
 #   scripts/phone-tail.sh /path/tail-...-L44-nohead.gguf
 # Tails (head-less, IQ4_XS): A19 L40 (safe max; L36 hits ~9.7 GB wired, jetsam ~10.4), L44; A18 L52, L56.
 set -u
