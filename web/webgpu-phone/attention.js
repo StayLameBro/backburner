@@ -156,7 +156,13 @@ export async function computeAttn(store, layer, nTok, nkReq, scale, Qw, ng) {
             a: Pav, // GPU-resident [48,ck]
             b: { data: Vb, shape: [ck, HD] },
           });
+          // Softmax returns normalized probabilities, so P @ V is already divided by l2. mergePartial (and the final
+          // O / l below) expect the unnormalized sum, so scale each row back up by l2 before merging.
           O2.set(Oav.data);
+          for (let r = 0; r < NR; r++) {
+            if (!liveH[r]) continue;
+            for (let d = 0; d < HD; d++) O2[r * HD + d] *= l2[r];
+          }
           mergePartial(O, m, l, O2, m2, l2, NR);
         }
       } else {
