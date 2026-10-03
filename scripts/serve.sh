@@ -24,7 +24,7 @@ if [ "${CLEAN:-0}" = 1 ]; then
 fi
 B=${BIN:-$PWD/llama.cpp/build-metal/bin}
 MODEL=${MODEL:-$HOME/Models/Qwen3.8-27B-IQ4_XS.gguf}
-DRAFT=${DRAFT:-$HOME/Models/dflash2-v2-q4km-self16.gguf}   # selector kept in f16: +7.5% acceptance vs the all-Q4_K file
+DRAFT=${DRAFT-$HOME/Models/dflash2-v2-q4km-self16.gguf}   # selector kept in f16: +7.5% acceptance vs the all-Q4_K file; DRAFT= (empty): no drafter
 CTX=${CTX:-65536}
 if [ "$CTX" -gt 65536 ]; then KV=${KV:-q4_0}; else KV=${KV:-q8_0}; fi
 # PHONE=auto (default): find the iPhone on the USB cable (scripts/phone-up.sh: its current address, relaunch the Backburner app if it
@@ -141,6 +141,9 @@ fi
 # (the 64k Mac-only config swaps ~1.5-3 GB), but the draft is serial, so rounds are slower.
 # -dev MTL0 is mandatory: without it --rpc puts part of the 27B on the phone (3 tok/s).
 [ -n "${PHONE_DRAFT:-}" ] && EXTRA+=(--rpc "$PHONE_DRAFT" -dev MTL0 --spec-draft-device RPC0)
+# replay rollback rows per recurrent cell (sent to the phone too); SPEC_REPLAY=0 leaves the flag off (no speculation needs no rollback)
+SPEC_REPLAY=${SPEC_REPLAY:-8}
+REPLAY=(); [ "$SPEC_REPLAY" != 0 ] && REPLAY=(--spec-gdn-replay "$SPEC_REPLAY")
 
 export GGML_METAL_REGFED=1 GGML_METAL_FA_GQA=1 GGML_METAL_FA_PREFILL_GQA=1 LLAMA_BATCHED_ARGMAX=1 SPEC_DRAFT_UBATCH=64
 # lossless speculative sampling for sampled (temperature > 0) requests, e.g. omp: +12% on the omp replay
@@ -205,7 +208,7 @@ phone_note() { [ -n "${PHONE_IP:-}" ] && printf 'mac %s\n' "$*" | nc -G 1 -w 2 "
 phone_note starting
 
 "$B/llama-server" -m "$MODEL" -ngl 999 -fa on -c "$CTX" -np 1 -ctk "$KV" -ctv "$KV" -t 2 -tb 2 \
-  --spec-type "${SPEC_TYPE:-ngram-simple,draft-dflash}" -md "$DRAFT" -ngld 999 --spec-draft-n-max 7 --spec-gdn-replay 8 \
+  --spec-type "${SPEC_TYPE:-ngram-simple,draft-dflash}" ${DRAFT:+-md "$DRAFT" -ngld 999 --spec-draft-n-max 7} ${REPLAY[@]+"${REPLAY[@]}"} \
   --slot-save-path "$CACHE_DIR/" --jinja --host 127.0.0.1 --port "$SPORT" \
   --cache-ram "${CACHE_RAM:-0}" --ctx-checkpoints "${CTX_CHECKPOINTS:-3}" \
   ${EXTRA[@]+"${EXTRA[@]}"} ${SERVER_ARGS:-} "$@" &
