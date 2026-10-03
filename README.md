@@ -194,6 +194,9 @@ that the startup line should read `split prefill on`, `remote KV on` and `ANE pa
 
 `scripts/serve.sh` documents each setting next to the measurement that chose it.
 
+**8 GB Mac?** Split decode runs the 27B with the Mac on the first 20 layers and the phone on the rest, ~4 tok/s on a
+MacBook Neo + iPhone Air: [docs/SPLIT-DECODE.md](docs/SPLIT-DECODE.md).
+
 ## Reproducing the numbers
 
 ```bash
