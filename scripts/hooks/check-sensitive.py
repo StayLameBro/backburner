@@ -22,7 +22,9 @@ What it refuses (exit 1, with file:line and the rule; the matched text is masked
                 (.p12 .p8 .cer .mobileprovision .pem .key), .env, .DS_Store, files over 5 MB, symlinks leaving the repo
   attribution   Co-Authored-By / session / "Generated with" lines naming an AI assistant, in commit messages
   author        a commit whose author or committer email is not a GitHub noreply address (or one allowed with
-                `git config --add backburner.allowedEmail ADDRESS`)
+                `git config --add backburner.allowedEmail ADDRESS`); GitHub's own committer address is accepted
+A push skips commits already on a published project's main branch (PUBLISHED below): they are public, and a branch rebased
+onto main would otherwise be refused for history from before these rules or for GitHub's merge commits (issue #8).
 A line containing "sensitive-ok" is exempt from home-path, email, private-ip and device-name (say why on that line);
 nothing exempts secret, private, device-id or team-id. Bypassing the hooks (--no-verify) defeats all of this: don't.
 """
@@ -265,6 +267,10 @@ def emails_ok(email):
     return email.lower().endswith("@users.noreply.github.com") or email.lower() in allowed
 
 
+# GitHub's web merges and edits are committed as "GitHub <noreply@github.com>": an address that names no person
+GITHUB_COMMITTER = "noreply@github.com"
+
+
 def check_identity(who, email):
     if not emails_ok(email):
         problems.append((who, "author", "<" + email.split("@")[0][:2] + "***@" + email.split("@")[-1] + "> is not a GitHub noreply "
@@ -300,20 +306,50 @@ def message(text, where="commit message"):
         scan_line(f"{where}:{i}", line)
 
 
+# Repos whose main branch is public history. A remote counts only by its URL (never its name), and only its main/master
+# branch: commits there were checked when they were merged, or came from upstream llama.cpp. Add one with
+# `git config --add backburner.publishedRepo URL`.
+PUBLISHED = ("github.com/staylamebro/backburner", "github.com/staylamebro/backburner-llama.cpp", "github.com/ggml-org/llama.cpp")
+
+
+def repo_id(url):
+    u = re.sub(r"^[a-z][a-z0-9+.-]*://", "", url.strip().lower())   # https:// ssh://
+    u = re.sub(r"^[^@/]+@", "", u)                                    # git@
+    u = re.sub(r"^([^/:]+):(?!\d+/)", r"\1/", u)                      # git@github.com:owner/repo
+    return re.sub(r"(\.git)?/*$", "", u)
+
+
+def published_refs():
+    ids = set(PUBLISHED) | {repo_id(u) for u in git("config", "--get-all", "backburner.publishedRepo").splitlines() if u.strip()}
+    refs = []
+    for line in git("config", "--get-regexp", r"^remote\..*\.url$").splitlines():
+        key, _, url = line.partition(" ")
+        if repo_id(url) not in ids:
+            continue
+        name = key[len("remote."):-len(".url")]
+        for branch in ("main", "master"):
+            ref = f"refs/remotes/{name}/{branch}"
+            if git("rev-parse", "--verify", "-q", ref + "^{commit}").strip():
+                refs.append(ref)
+    return refs
+
+
 def push():
     zero = "0" * 40
+    published = published_refs()
     for line in sys.stdin.read().splitlines():
         parts = line.split()
         if len(parts) < 4 or parts[1] == zero:
             continue
         local, remote = parts[1], parts[3]
-        rng = [local, "--not", "--remotes"] if remote == zero else [f"{remote}..{local}"]
+        rng = [local, "--not", "--remotes", *published] if remote == zero else [local, "--not", remote, *published]
         for sha in filter(None, git("rev-list", *rng).split()):
             short = sha[:9]
             message(git("log", "-1", "--format=%B", sha), f"commit {short} message")
             ae, ce = git("log", "-1", "--format=%ae%n%ce", sha).split("\n")[:2]
             check_identity(f"commit {short} author", ae)
-            check_identity(f"commit {short} committer", ce)
+            if ce.lower() != GITHUB_COMMITTER:
+                check_identity(f"commit {short} committer", ce)
             for row in filter(None, git("diff-tree", "-r", "-z", "--no-commit-id", "--diff-filter=ACMR", "--root", sha).split("\0:")):
                 f = row.lstrip(":").split("\0")
                 if len(f) < 2:

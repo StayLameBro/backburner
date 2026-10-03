@@ -95,5 +95,38 @@ git push -q origin HEAD:main >/dev/null 2>&1 && bad "pre-push let a personal aut
 git reset -q --hard HEAD~1
 git push -q origin HEAD:feature >/dev/null 2>&1 && ok || bad "a clean new branch push is allowed"
 
+# issue #8: a branch rebased onto the published main passes even though main holds commits these rules would refuse
+# (history from before them, GitHub's merge commits); new commits on top are still checked, and an unpublished remote's
+# history is not trusted. url.insteadOf points the real URLs at local repos, so the hook sees the URLs.
+ATTR="$(printf 'old\n\nCo-Authored-By: Cl''aude <noreply@anthropic.com>')"
+base=$(git rev-parse HEAD)
+git switch -q -c pubhist "$base"
+git -c user.email="zeb@""personal-mail.net" commit -q --no-verify --allow-empty -m "$ATTR" >/dev/null 2>&1
+git switch -q -c side "$base" && git commit -q --no-verify --allow-empty -m side >/dev/null 2>&1 && git switch -q pubhist
+GIT_AUTHOR_EMAIL="zeb@""personal-mail.net" GIT_COMMITTER_NAME=GitHub GIT_COMMITTER_EMAIL="noreply@github.com" \
+  git merge -q --no-ff --no-verify -m "Merge pull request #7" side >/dev/null 2>&1
+git init -q --bare ../pub.git && git -C ../pub.git fetch -q "$T/repo" pubhist:main
+git config url."$T/pub.git".insteadOf "https://github.com/StayLameBro/backburner.git"
+git remote add upstream "https://github.com/StayLameBro/backburner.git" && git fetch -q upstream
+git switch -q -c work "$base" && echo w > w.txt && git add w.txt && git commit -qm work >/dev/null 2>&1
+git push -q origin work >/dev/null 2>&1 && ok || bad "a clean new branch (work) is allowed"
+git rebase -q upstream/main >/dev/null 2>&1
+git push -q --force origin work >/dev/null 2>&1 && ok || bad "a branch rebased onto the published main was refused (issue #8)"
+git commit -q --no-verify --allow-empty -m "$ATTR" >/dev/null 2>&1
+git push -q --force origin work >/dev/null 2>&1 && bad "pre-push let an attribution line through on top of the published main" || ok
+git reset -q --hard HEAD~1
+GIT_COMMITTER_NAME=GitHub GIT_COMMITTER_EMAIL="noreply@github.com" git commit -q --no-verify --allow-empty -m "web edit" >/dev/null 2>&1
+git push -q --force origin work >/dev/null 2>&1 && ok || bad "GitHub's committer address was refused"
+GIT_AUTHOR_EMAIL="noreply@github.com" git commit -q --no-verify --allow-empty -m "odd author" >/dev/null 2>&1
+git push -q --force origin work >/dev/null 2>&1 && bad "GitHub's address was accepted as an author" || ok
+git reset -q --hard HEAD~1
+git switch -q -c otherhist "$base"
+git -c user.email="zeb@""personal-mail.net" commit -q --no-verify --allow-empty -m other >/dev/null 2>&1
+git init -q --bare ../other.git && git -C ../other.git fetch -q "$T/repo" otherhist:main
+git config url."$T/other.git".insteadOf "https://github.com/someone-else/backburner.git"
+git remote add fork "https://github.com/someone-else/backburner.git" && git fetch -q fork
+git switch -q work && git reset -q --hard fork/main
+git push -q --force origin work >/dev/null 2>&1 && bad "an unpublished remote's history was trusted" || ok
+
 echo "check-sensitive-test: $pass passed, $fail failed"
 [ $fail = 0 ]
