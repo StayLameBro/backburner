@@ -1,0 +1,29 @@
+{
+  "repo_url": "https://github.com/ggml-org/llama.cpp.git",
+  "wsl_lab_dir": "~/llama-pr-lab/llama.cpp",
+  "wsl_model_dir": "~/llama-pr-lab/models",
+  "smoke_model": {
+    "repo": "TinyLlama/TinyLlama-1.1B-Chat-v1.0-GGUF",
+    "file": "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+    "size_mb": 669
+  },
+  "perf_model": {
+    "repo": "Qwen/Qwen2.5-7B-Instruct-GGUF",
+    "file": "qwen2.5-7b-instruct-q4_k_m.gguf",
+    "size_mb": 4710
+  },
+  "batch_size": 3,
+  "target_batches": 17,
+  "target_prs": 50,
+  "build_targets": ["llama-cli", "llama-bench"],
+  "build_type": "Release",
+  "smoke_prompt": "Hello, my name is",
+  "smoke_n_predict": 20,
+  "bench_pp": 128,
+  "bench_tg": 128,
+  "regression_threshold_pct": 5.0,
+  "perf_keywords": ["perf", "speed", "faster", "optimi", "accelerat", "flash", "quant", "cuda", "vulkan", "metal", "avx", "neon", "sve", "sme", "blas", "bench", "throughput", "latency", "cache", "prefill", "decode", "speculat", "draft", "mtp", "parallel", "thread", "simd", "int8", "fp16", "bf16", "mla", "attn", "kernel", "graph", "mmap", "mem"],
+  "perf_paths": ["ggml/src", "ggml/include", "src/", "common/", "tools/server", "examples/bench"],
+  "exclude_labels": ["breaking change", "do not merge", "wip"],
+  "github_token_env": "GH_TOKEN"
+}

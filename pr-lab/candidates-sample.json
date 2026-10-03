@@ -1,0 +1,1111 @@
+[
+  {
+    "number": 29110,
+    "title": "metal : multi-column mat-vec kernels for small batches (Q4_0/Q8_0, ne11 = 2..8)",
+    "user": "Hagudelom",
+    "updated": "2026-09-19T00:02:17Z",
+    "labels": [
+      "testing",
+      "ggml",
+      "apple metal"
+    ],
+    "score": 17,
+    "hits": [
+      "perf",
+      "speed",
+      "faster",
+      "quant",
+      "metal",
+      "bench",
+      "prefill",
+      "decode",
+      "speculat",
+      "draft",
+      "mtp",
+      "thread",
+      "simd",
+      "kernel",
+      "mem",
+      "touches-perf-path"
+    ],
+    "head": "d1f13710",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 383,
+    "deletions": 0,
+    "changed_files": 5,
+    "files": [
+      "ggml/src/ggml-metal/ggml-metal-device.cpp",
+      "ggml/src/ggml-metal/ggml-metal-device.h",
+      "ggml/src/ggml-metal/ggml-metal-ops.cpp",
+      "ggml/src/ggml-metal/kernels/mul_mv.metal",
+      "tests/test-backend-ops.cpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 28781,
+    "title": "CUDA: fix crash for MTP decoding on pre-Pascal GPUs",
+    "user": "limingchina",
+    "updated": "2026-09-14T19:15:11Z",
+    "labels": [
+      "ggml",
+      "cuda"
+    ],
+    "score": 16,
+    "hits": [
+      "optimi",
+      "flash",
+      "cuda",
+      "vulkan",
+      "cache",
+      "decode",
+      "speculat",
+      "draft",
+      "mtp",
+      "thread",
+      "attn",
+      "kernel",
+      "graph",
+      "mem",
+      "touches-perf-path"
+    ],
+    "head": "64325556",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 5,
+    "deletions": 0,
+    "changed_files": 1,
+    "files": [
+      "ggml/src/ggml-cuda/ggml-cuda.cu"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 28671,
+    "title": "CUDA: use radix-select TOP_K in the CUB fallback for wide rows",
+    "user": "Inovello",
+    "updated": "2026-09-23T17:16:59Z",
+    "labels": [
+      "ggml",
+      "cuda"
+    ],
+    "score": 14,
+    "hits": [
+      "perf",
+      "faster",
+      "flash",
+      "cuda",
+      "throughput",
+      "cache",
+      "prefill",
+      "decode",
+      "draft",
+      "mtp",
+      "kernel",
+      "graph",
+      "touches-perf-path"
+    ],
+    "head": "ff2b4367",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 14,
+    "deletions": 2,
+    "changed_files": 1,
+    "files": [
+      "ggml/src/ggml-cuda/top-k.cu"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29171,
+    "title": "sycl: accelerate GLM MLA prefill with MKL flash attention",
+    "user": "anantshri",
+    "updated": "2026-10-02T19:35:32Z",
+    "labels": [
+      "testing",
+      "ggml",
+      "sycl"
+    ],
+    "score": 14,
+    "hits": [
+      "perf",
+      "optimi",
+      "accelerat",
+      "flash",
+      "quant",
+      "cache",
+      "prefill",
+      "decode",
+      "mla",
+      "attn",
+      "kernel",
+      "graph",
+      "touches-perf-path"
+    ],
+    "head": "88e64491",
+    "mergeable": true,
+    "mergeable_state": "clean",
+    "additions": 21,
+    "deletions": 12,
+    "changed_files": 2,
+    "files": [
+      "ggml/src/ggml-sycl/fattn-mkl.cpp",
+      "ggml/src/ggml-sycl/fattn.cpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29442,
+    "title": "Feature: BF16/FP16 conversion to f32 chunking",
+    "user": "thelittlefireman",
+    "updated": "2026-09-29T12:36:57Z",
+    "labels": [
+      "documentation",
+      "testing",
+      "devops",
+      "ggml",
+      "cuda"
+    ],
+    "score": 13,
+    "hits": [
+      "perf",
+      "faster",
+      "cuda",
+      "blas",
+      "bench",
+      "throughput",
+      "cache",
+      "mtp",
+      "fp16",
+      "bf16",
+      "graph",
+      "touches-perf-path"
+    ],
+    "head": "ffa6c802",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 26,
+    "deletions": 0,
+    "changed_files": 1,
+    "files": [
+      "ggml/src/ggml-cuda/ggml-cuda.cu"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29877,
+    "title": "vulkan: pack FMA for f16 accumulation, no dot product op",
+    "user": "amitmi704",
+    "updated": "2026-10-02T21:26:30Z",
+    "labels": [
+      "vulkan",
+      "ggml"
+    ],
+    "score": 13,
+    "hits": [
+      "perf",
+      "speed",
+      "quant",
+      "vulkan",
+      "bench",
+      "throughput",
+      "prefill",
+      "fp16",
+      "bf16",
+      "graph",
+      "mem",
+      "touches-perf-path"
+    ],
+    "head": "e2914086",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 14,
+    "deletions": 0,
+    "changed_files": 2,
+    "files": [
+      "ggml/src/ggml-vulkan/vulkan-shaders/mul_mm.comp",
+      "ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 28952,
+    "title": "FP8 weight surpport for v79+ and dit optimizations",
+    "user": "happyyzy",
+    "updated": "2026-09-15T15:22:43Z",
+    "labels": [
+      "documentation",
+      "ggml",
+      "hexagon"
+    ],
+    "score": 12,
+    "hits": [
+      "perf",
+      "speed",
+      "faster",
+      "optimi",
+      "quant",
+      "decode",
+      "fp16",
+      "bf16",
+      "kernel",
+      "graph",
+      "mem",
+      "touches-perf-path",
+      "large-diff-penalty"
+    ],
+    "head": "9e2b8137",
+    "mergeable": false,
+    "mergeable_state": "dirty",
+    "additions": 3619,
+    "deletions": 53,
+    "changed_files": 22,
+    "files": [
+      "ggml/include/ggml.h",
+      "ggml/src/ggml-cpu/ggml-cpu.c",
+      "ggml/src/ggml-cpu/ggml-cpu.cpp",
+      "ggml/src/ggml-cpu/ops.cpp",
+      "ggml/src/ggml-hexagon/ggml-hexagon.cpp",
+      "ggml/src/ggml-hexagon/htp/CMakeLists.txt",
+      "ggml/src/ggml-hexagon/htp/conv2d-ops.c",
+      "ggml/src/ggml-hexagon/htp/conv2d-ops.h",
+      "ggml/src/ggml-hexagon/htp/cpy-ops.c",
+      "ggml/src/ggml-hexagon/htp/groupnorm-ops.c",
+      "ggml/src/ggml-hexagon/htp/groupnorm-ops.h",
+      "ggml/src/ggml-hexagon/htp/hmx-mm-kernels-tiled.h",
+      "ggml/src/ggml-hexagon/htp/htp-ctx.h",
+      "ggml/src/ggml-hexagon/htp/htp-ops.h",
+      "ggml/src/ggml-hexagon/htp/hvx-sigmoid.h",
+      "ggml/src/ggml-hexagon/htp/main.c",
+      "ggml/src/ggml-hexagon/htp/matmul-ops.c",
+      "ggml/src/ggml-hexagon/htp/matmul-ops.h",
+      "ggml/src/ggml-hexagon/htp/qknorm-rope-ops.c",
+      "ggml/src/ggml-quants.c"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29143,
+    "title": "feat(qwen35): support d2t draft-vocabulary trim for MTP speculative decoding",
+    "user": "Shreesh-Sree",
+    "updated": "2026-09-22T22:19:47Z",
+    "labels": [
+      "model"
+    ],
+    "score": 12,
+    "hits": [
+      "speed",
+      "optimi",
+      "flash",
+      "cuda",
+      "bench",
+      "throughput",
+      "speculat",
+      "draft",
+      "mtp",
+      "graph",
+      "touches-perf-path"
+    ],
+    "head": "5057096f",
+    "mergeable": false,
+    "mergeable_state": "dirty",
+    "additions": 90,
+    "deletions": 8,
+    "changed_files": 2,
+    "files": [
+      "src/models/qwen35.cpp",
+      "src/models/qwen35moe.cpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 28982,
+    "title": "cuda : keep columns in registers for cooperative softmax",
+    "user": "sirohikartik",
+    "updated": "2026-09-24T06:33:59Z",
+    "labels": [
+      "ggml",
+      "cuda"
+    ],
+    "score": 12,
+    "hits": [
+      "speed",
+      "flash",
+      "cuda",
+      "metal",
+      "bench",
+      "latency",
+      "parallel",
+      "thread",
+      "kernel",
+      "mem",
+      "touches-perf-path"
+    ],
+    "head": "73ebeddf",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 152,
+    "deletions": 68,
+    "changed_files": 1,
+    "files": [
+      "ggml/src/ggml-cuda/softmax.cu"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29355,
+    "title": "The speculative draft handle logic tuning.",
+    "user": "WenqiangJia2026",
+    "updated": "2026-09-24T16:32:02Z",
+    "labels": [
+      "server"
+    ],
+    "score": 12,
+    "hits": [
+      "perf",
+      "cuda",
+      "blas",
+      "throughput",
+      "decode",
+      "speculat",
+      "draft",
+      "parallel",
+      "kernel",
+      "graph",
+      "touches-perf-path"
+    ],
+    "head": "85776974",
+    "mergeable": false,
+    "mergeable_state": "dirty",
+    "additions": 32,
+    "deletions": 5,
+    "changed_files": 3,
+    "files": [
+      "common/speculative.cpp",
+      "common/speculative.h",
+      "tools/server/server-context.cpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29807,
+    "title": "CUDA: Remove redundant CUDA copies after SSM_SCAN",
+    "user": "anavp-nvidia",
+    "updated": "2026-10-01T15:00:58Z",
+    "labels": [
+      "testing",
+      "ggml",
+      "cuda"
+    ],
+    "score": 12,
+    "hits": [
+      "perf",
+      "speed",
+      "faster",
+      "cuda",
+      "bench",
+      "cache",
+      "decode",
+      "draft",
+      "mtp",
+      "kernel",
+      "touches-perf-path"
+    ],
+    "head": "ec5bbca1",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 228,
+    "deletions": 9,
+    "changed_files": 4,
+    "files": [
+      "ggml/src/ggml-cuda/ggml-cuda.cu",
+      "ggml/src/ggml-cuda/ssm-scan.cu",
+      "ggml/src/ggml-cuda/ssm-scan.cuh",
+      "tests/test-backend-ops.cpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29435,
+    "title": "CUDA: prefer whole-tile FlashAttention scheduling for efficient two-stage kernels",
+    "user": "anujj",
+    "updated": "2026-10-01T21:25:13Z",
+    "labels": [
+      "ggml",
+      "cuda"
+    ],
+    "score": 12,
+    "hits": [
+      "perf",
+      "flash",
+      "quant",
+      "cuda",
+      "bench",
+      "throughput",
+      "cache",
+      "prefill",
+      "attn",
+      "kernel",
+      "touches-perf-path"
+    ],
+    "head": "21470ad4",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 12,
+    "deletions": 4,
+    "changed_files": 2,
+    "files": [
+      "ggml/src/ggml-cuda/fattn-common.cuh",
+      "ggml/src/ggml-cuda/fattn-mma-f16.cuh"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29357,
+    "title": "vulkan : Intel FA kernel for prefill.",
+    "user": "sliu39",
+    "updated": "2026-10-01T21:46:42Z",
+    "labels": [
+      "vulkan",
+      "ggml"
+    ],
+    "score": 12,
+    "hits": [
+      "perf",
+      "vulkan",
+      "bench",
+      "prefill",
+      "decode",
+      "fp16",
+      "bf16",
+      "kernel",
+      "graph",
+      "mem",
+      "touches-perf-path"
+    ],
+    "head": "1a5137a4",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 691,
+    "deletions": 86,
+    "changed_files": 7,
+    "files": [
+      "ggml/src/ggml-vulkan/ggml-vulkan-push-constants.h",
+      "ggml/src/ggml-vulkan/ggml-vulkan-types.h",
+      "ggml/src/ggml-vulkan/ggml-vulkan.cpp",
+      "ggml/src/ggml-vulkan/vulkan-shaders/flash_attn_decode_phase_1.comp",
+      "ggml/src/ggml-vulkan/vulkan-shaders/flash_attn_decode_phase_2.comp",
+      "ggml/src/ggml-vulkan/vulkan-shaders/flash_attn_prefill.comp",
+      "ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 28696,
+    "title": "model : add DeepSeek V4.1 (DeepseekV41ForCausalLM)",
+    "user": "vcruz305",
+    "updated": "2026-09-28T15:40:59Z",
+    "labels": [
+      "model",
+      "testing",
+      "conversion"
+    ],
+    "score": 11,
+    "hits": [
+      "flash",
+      "quant",
+      "cuda",
+      "cache",
+      "draft",
+      "thread",
+      "attn",
+      "graph",
+      "mmap",
+      "mem",
+      "touches-perf-path",
+      "large-diff-penalty"
+    ],
+    "head": "20764125",
+    "mergeable": false,
+    "mergeable_state": "dirty",
+    "additions": 2090,
+    "deletions": 77,
+    "changed_files": 23,
+    "files": [
+      "common/parsers/deepseek.cpp",
+      "conversion/__init__.py",
+      "conversion/deepseek.py",
+      "gguf-py/gguf/constants.py",
+      "models/templates/deepseek-ai-DeepSeek-V4.1-Flash.jinja",
+      "src/llama-arch.cpp",
+      "src/llama-arch.h",
+      "src/llama-context.cpp",
+      "src/llama-graph.cpp",
+      "src/llama-hparams.h",
+      "src/llama-kv-cache-dsv4.cpp",
+      "src/llama-kv-cache-dsv4.h",
+      "src/llama-kv-cache.cpp",
+      "src/llama-model-loader.cpp",
+      "src/llama-model-saver.cpp",
+      "src/llama-model.cpp",
+      "src/llama-model.h",
+      "src/llama-quant.cpp",
+      "src/models/deepseek4.cpp",
+      "src/models/deepseek41.cpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29809,
+    "title": "sycl : accelerate MXFP4 MoE with arithmetic decoding and weight reordering",
+    "user": "Captain-Tripps",
+    "updated": "2026-10-01T17:02:52Z",
+    "labels": [
+      "ggml",
+      "sycl"
+    ],
+    "score": 11,
+    "hits": [
+      "speed",
+      "optimi",
+      "accelerat",
+      "flash",
+      "bench",
+      "prefill",
+      "decode",
+      "kernel",
+      "mem",
+      "touches-perf-path"
+    ],
+    "head": "97987dc9",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 258,
+    "deletions": 4,
+    "changed_files": 6,
+    "files": [
+      "ggml/src/ggml-sycl/convert.cpp",
+      "ggml/src/ggml-sycl/dequantize.hpp",
+      "ggml/src/ggml-sycl/ggml-sycl.cpp",
+      "ggml/src/ggml-sycl/mmvq.cpp",
+      "ggml/src/ggml-sycl/quants.hpp",
+      "ggml/src/ggml-sycl/vecdotq.hpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29768,
+    "title": "cuda : avoid repeated warmup after stable graph replay",
+    "user": "joelagnel",
+    "updated": "2026-10-01T22:48:41Z",
+    "labels": [
+      "ggml",
+      "cuda"
+    ],
+    "score": 11,
+    "hits": [
+      "faster",
+      "flash",
+      "cuda",
+      "bench",
+      "cache",
+      "decode",
+      "attn",
+      "graph",
+      "mem",
+      "touches-perf-path"
+    ],
+    "head": "bd154f96",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 19,
+    "deletions": 3,
+    "changed_files": 2,
+    "files": [
+      "ggml/src/ggml-cuda/common.cuh",
+      "ggml/src/ggml-cuda/ggml-cuda.cu"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29797,
+    "title": "sampling : use greedy selection for eligible temperature-zero chains",
+    "user": "hthadicherla",
+    "updated": "2026-10-02T08:18:31Z",
+    "labels": [
+      "testing"
+    ],
+    "score": 11,
+    "hits": [
+      "perf",
+      "speed",
+      "flash",
+      "cuda",
+      "bench",
+      "throughput",
+      "latency",
+      "decode",
+      "draft",
+      "touches-perf-path"
+    ],
+    "head": "cfe9b5f9",
+    "mergeable": true,
+    "mergeable_state": "clean",
+    "additions": 33,
+    "deletions": 1,
+    "changed_files": 3,
+    "files": [
+      "common/sampling.cpp",
+      "src/llama-sampler.cpp",
+      "tests/test-backend-sampler.cpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29796,
+    "title": "llama : avoid redundant synchronization in output getters",
+    "user": "hthadicherla",
+    "updated": "2026-10-02T13:40:29Z",
+    "labels": [
+      "testing",
+      "ggml",
+      "sycl",
+      "cuda"
+    ],
+    "score": 11,
+    "hits": [
+      "perf",
+      "flash",
+      "cuda",
+      "throughput",
+      "latency",
+      "decode",
+      "draft",
+      "kernel",
+      "graph",
+      "touches-perf-path"
+    ],
+    "head": "2ce37f0e",
+    "mergeable": false,
+    "mergeable_state": "dirty",
+    "additions": 138,
+    "deletions": 8,
+    "changed_files": 4,
+    "files": [
+      "ggml/src/ggml-backend-impl.h",
+      "ggml/src/ggml-backend.cpp",
+      "ggml/src/ggml-cuda/ggml-cuda.cu",
+      "tests/test-alloc.cpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29121,
+    "title": "llama : update the GDN recurrent state in place on the CPU (#28841)",
+    "user": "alenizy361",
+    "updated": "2026-09-19T09:28:23Z",
+    "labels": [
+      "model",
+      "testing",
+      "ggml"
+    ],
+    "score": 10,
+    "hits": [
+      "perf",
+      "speed",
+      "avx",
+      "cache",
+      "speculat",
+      "kernel",
+      "mmap",
+      "mem",
+      "touches-perf-path"
+    ],
+    "head": "cbea4a40",
+    "mergeable": false,
+    "mergeable_state": "dirty",
+    "additions": 608,
+    "deletions": 25,
+    "changed_files": 17,
+    "files": [
+      "ggml/include/ggml.h",
+      "ggml/src/ggml-cpu/ops.cpp",
+      "ggml/src/ggml.c",
+      "src/llama-graph.cpp",
+      "src/llama-graph.h",
+      "src/llama-memory-recurrent.cpp",
+      "src/llama-memory-recurrent.h",
+      "src/models/bailingmoe3.cpp",
+      "src/models/delta-net-base.cpp",
+      "src/models/kimi-k3.cpp",
+      "src/models/models.h",
+      "src/models/qwen35.cpp",
+      "src/models/qwen35moe.cpp",
+      "src/models/qwen3next.cpp",
+      "src/models/qwen4exp.cpp",
+      "tests/CMakeLists.txt",
+      "tests/test-gdn-inplace.cpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29153,
+    "title": "ggml-cpu: add neon-vectorized ggml_quantize_mat_q8_K_4x4 and 4x8",
+    "user": "a-eee",
+    "updated": "2026-09-19T19:59:49Z",
+    "labels": [
+      "ggml"
+    ],
+    "score": 10,
+    "hits": [
+      "speed",
+      "quant",
+      "metal",
+      "neon",
+      "blas",
+      "bench",
+      "thread",
+      "int8",
+      "touches-perf-path"
+    ],
+    "head": "85ae8768",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 213,
+    "deletions": 2,
+    "changed_files": 2,
+    "files": [
+      "ggml/src/ggml-cpu/arch-fallback.h",
+      "ggml/src/ggml-cpu/arch/arm/repack.cpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29394,
+    "title": "kleidiai: use SME2 kernels for CPU flash attention",
+    "user": "arm-bhanuarya",
+    "updated": "2026-09-29T10:32:06Z",
+    "labels": [
+      "testing",
+      "ggml"
+    ],
+    "score": 10,
+    "hits": [
+      "perf",
+      "optimi",
+      "flash",
+      "sme",
+      "thread",
+      "simd",
+      "attn",
+      "kernel",
+      "touches-perf-path"
+    ],
+    "head": "34659b33",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 387,
+    "deletions": 21,
+    "changed_files": 7,
+    "files": [
+      "ggml/src/ggml-cpu/ggml-cpu.c",
+      "ggml/src/ggml-cpu/kleidiai/kernels.cpp",
+      "ggml/src/ggml-cpu/kleidiai/kernels.h",
+      "ggml/src/ggml-cpu/kleidiai/kleidiai.cpp",
+      "ggml/src/ggml-cpu/kleidiai/kleidiai.h",
+      "ggml/src/ggml-cpu/ops.cpp",
+      "tests/test-backend-ops.cpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29752,
+    "title": "server : add /v1/decision for parallel constrained decisions",
+    "user": "thecodacus",
+    "updated": "2026-09-30T16:15:25Z",
+    "labels": [
+      "documentation",
+      "server"
+    ],
+    "score": 10,
+    "hits": [
+      "faster",
+      "metal",
+      "bench",
+      "cache",
+      "prefill",
+      "decode",
+      "parallel",
+      "mem",
+      "touches-perf-path"
+    ],
+    "head": "a8d96e94",
+    "mergeable": false,
+    "mergeable_state": "dirty",
+    "additions": 1358,
+    "deletions": 2,
+    "changed_files": 14,
+    "files": [
+      "common/arg.cpp",
+      "common/common.cpp",
+      "common/common.h",
+      "tools/CMakeLists.txt",
+      "tools/parallel-decision/CMakeLists.txt",
+      "tools/parallel-decision/README.md",
+      "tools/parallel-decision/decision-engine.cpp",
+      "tools/parallel-decision/decision-engine.h",
+      "tools/parallel-decision/parallel-decision.cpp",
+      "tools/server/CMakeLists.txt",
+      "tools/server/server-context.cpp",
+      "tools/server/server-context.h",
+      "tools/server/server-task.h",
+      "tools/server/server.cpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29806,
+    "title": "ggml-cpu: support BF16 K tails in llamafile tinyBLAS",
+    "user": "SongXiaoXi",
+    "updated": "2026-10-02T05:08:49Z",
+    "labels": [
+      "ggml"
+    ],
+    "score": 10,
+    "hits": [
+      "perf",
+      "speed",
+      "avx",
+      "blas",
+      "bench",
+      "thread",
+      "bf16",
+      "kernel",
+      "touches-perf-path"
+    ],
+    "head": "b5c15204",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 32,
+    "deletions": 2,
+    "changed_files": 1,
+    "files": [
+      "ggml/src/ggml-cpu/llamafile/sgemm.cpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29639,
+    "title": "vulkan: sparse flash attention for quantized K/V",
+    "user": "fxgsell",
+    "updated": "2026-10-02T07:17:07Z",
+    "labels": [
+      "testing",
+      "vulkan",
+      "ggml"
+    ],
+    "score": 10,
+    "hits": [
+      "perf",
+      "flash",
+      "quant",
+      "vulkan",
+      "bench",
+      "cache",
+      "decode",
+      "attn",
+      "touches-perf-path"
+    ],
+    "head": "0cdb384c",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 89,
+    "deletions": 51,
+    "changed_files": 4,
+    "files": [
+      "ggml/src/ggml-vulkan/ggml-vulkan.cpp",
+      "ggml/src/ggml-vulkan/vulkan-shaders/flash_attn.comp",
+      "ggml/src/ggml-vulkan/vulkan-shaders/flash_attn_sparse_compact.comp",
+      "tests/test-backend-ops.cpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29720,
+    "title": "CUDA: HIP: rms_norm: add variants that load float4 at a time and store x in registers",
+    "user": "IMbackK",
+    "updated": "2026-10-02T13:47:08Z",
+    "labels": [
+      "ggml",
+      "cuda"
+    ],
+    "score": 10,
+    "hits": [
+      "speed",
+      "flash",
+      "cuda",
+      "bench",
+      "cache",
+      "decode",
+      "kernel",
+      "mem",
+      "touches-perf-path"
+    ],
+    "head": "b917da9b",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 164,
+    "deletions": 82,
+    "changed_files": 1,
+    "files": [
+      "ggml/src/ggml-cuda/norm.cu"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29857,
+    "title": "CUDA: Optimize accumulation in mmq for NVFP4 type",
+    "user": "kmorennv",
+    "updated": "2026-10-02T17:14:21Z",
+    "labels": [
+      "ggml",
+      "cuda"
+    ],
+    "score": 10,
+    "hits": [
+      "perf",
+      "optimi",
+      "flash",
+      "cuda",
+      "throughput",
+      "thread",
+      "kernel",
+      "mem",
+      "touches-perf-path"
+    ],
+    "head": "5760e10f",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 4,
+    "deletions": 7,
+    "changed_files": 1,
+    "files": [
+      "ggml/src/ggml-cuda/mmq-vec-dot.cuh"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 28571,
+    "title": "rpc : query the remote backend's supports_op instead of assuming every op is supported",
+    "user": "kh0pper",
+    "updated": "2026-09-07T17:25:01Z",
+    "labels": [
+      "ggml"
+    ],
+    "score": 9,
+    "hits": [
+      "flash",
+      "vulkan",
+      "bench",
+      "cache",
+      "decode",
+      "graph",
+      "mem",
+      "touches-perf-path"
+    ],
+    "head": "98e6d0a6",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 167,
+    "deletions": 7,
+    "changed_files": 2,
+    "files": [
+      "ggml/include/ggml-rpc.h",
+      "ggml/src/ggml-rpc/ggml-rpc.cpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29340,
+    "title": "metal : fix threadgroup memory overflow in quantized flash attention",
+    "user": "masterFoad",
+    "updated": "2026-09-24T07:36:57Z",
+    "labels": [
+      "testing",
+      "ggml",
+      "apple metal"
+    ],
+    "score": 9,
+    "hits": [
+      "flash",
+      "quant",
+      "metal",
+      "sme",
+      "thread",
+      "kernel",
+      "mem",
+      "touches-perf-path"
+    ],
+    "head": "fb998b46",
+    "mergeable": true,
+    "mergeable_state": "clean",
+    "additions": 7,
+    "deletions": 1,
+    "changed_files": 2,
+    "files": [
+      "ggml/src/ggml-metal/ggml-metal-ops.cpp",
+      "tests/test-backend-ops.cpp"
+    ],
+    "touches_perf_path": true
+  },
+  {
+    "number": 29576,
+    "title": "llama : reduce backend sampling host output buffers",
+    "user": "yu830",
+    "updated": "2026-09-28T14:44:43Z",
+    "labels": [
+      "testing"
+    ],
+    "score": 7,
+    "hits": [
+      "speed",
+      "flash",
+      "cuda",
+      "cache",
+      "decode",
+      "draft",
+      "mem"
+    ],
+    "head": "738403b7",
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "additions": 264,
+    "deletions": 16,
+    "changed_files": 5,
+    "error": "HTTP Error 403: rate limit exceeded"
+  },
+  {
+    "number": 28725,
+    "title": "Add SYCL graph record and replay",
+    "user": "malsbat",
+    "updated": "2026-09-29T02:30:54Z",
+    "labels": [
+      "documentation",
+      "ggml",
+      "sycl"
+    ],
+    "score": 7,
+    "hits": [
+      "perf",
+      "cuda",
+      "vulkan",
+      "decode",
+      "kernel",
+      "graph",
+      "mem"
+    ],
+    "head": "477a1f1f",
+    "error": "HTTP Error 403: rate limit exceeded"
+  }
+]

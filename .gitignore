@@ -17,3 +17,8 @@ xcuserdata/
 bench/results/slots/
 *.bin
 *.bin.dft
+# never commit credentials of any kind
+*token*
+*.pem
+*.key
+.env
