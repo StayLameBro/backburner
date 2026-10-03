@@ -27,6 +27,56 @@ MODEL=${MODEL:-$HOME/Models/Qwen3.8-27B-IQ4_XS.gguf}
 DRAFT=${DRAFT-$HOME/Models/dflash2-v2-q4km-self16.gguf}   # selector kept in f16: +7.5% acceptance vs the all-Q4_K file; DRAFT= (empty): no drafter
 CTX=${CTX:-65536}
 if [ "$CTX" -gt 65536 ]; then KV=${KV:-q4_0}; else KV=${KV:-q8_0}; fi
+# SPLIT_DECODE_L=N (split decode, small Mac + phone): the Mac holds and runs only layers [0,N); the phone's tail (made with
+# scripts/split-gguf.py -L N, head kept: no --no-head) runs layers N+ and the output head for every token and returns the logits.
+# The Mac keeps the full GGUF mapped but sends layers N+ and output* to the CPU (-ot), where they stay as never-read file pages,
+# so the GPU maps only [0,N). Needs llama.cpp split decode (LLAMA_SPLIT_DECODE); without it decode still runs every layer on
+# the Mac and pages layers N+ in from the SSD. No speculation (the phone can't rewind its recurrent state), no drafter, no
+# checkpoints, no prompt-cache proxy (a saved slot would lack the phone's half), no phone-held KV, SME off. docs/SPLIT-DECODE.md
+SD_ARGS=()
+if [ -n "${SPLIT_DECODE_L:-}" ]; then
+  SDL=$SPLIT_DECODE_L
+  case "$SDL" in ''|*[!0-9]*|0*) echo "serve: SPLIT_DECODE_L must be a positive layer number, got '$SDL'" >&2; exit 1 ;; esac
+  [ "$CTX" -gt 65536 ] && { echo "serve: SPLIT_DECODE_L needs CTX <= 65536 (the CTX > 65536 block loads with -lm none)" >&2; exit 1; }
+  [ -n "${PHONE_KV:-}" ] && { echo "serve: SPLIT_DECODE_L and PHONE_KV can't be combined" >&2; exit 1; }
+  if [ -z "${LLAMA_SPLIT_TAIL:-}" ]; then   # the phone's tail is required: find it on the cable
+    PUP=$(TAIL_WAIT=${TAIL_WAIT:-90} "$(dirname "$0")/phone-up.sh") || exit 1
+    read -r PIP PTAIL _ <<< "$(head -1 <<< "$PUP")"
+    [ "$PTAIL" = 1 ] || { echo "serve: SPLIT_DECODE_L needs the phone's tail (:50060) up: scripts/phone-tail.sh <tail-...-L$SDL-head.gguf>" >&2; exit 1; }
+    LLAMA_SPLIT_TAIL=$PIP:50060
+  fi
+  export LLAMA_SPLIT_TAIL LLAMA_SPLIT_L=$SDL LLAMA_SPLIT_DECODE=1
+  # keep the Mac GPU clocked up while the phone computes (a trivial dispatch every 1 ms, only during the wait): the A18 Pro
+  # otherwise drops its clock in the ~160 ms gap and the next head pass runs slow. Head-only bench, L=20 IQ2_XS, 160 ms gap per
+  # token: 98.7-101.0 -> 88.0-88.1 ms per token, p95 139-141 -> 95-96 ms, +0.5 W average GPU power. 2026-10-03.
+  export LLAMA_SPLIT_GPU_WARM_US=${LLAMA_SPLIT_GPU_WARM_US:-1000}
+  PHONE=0 PHONE_ANE=0 PHONE_IP=${LLAMA_SPLIT_TAIL%:*}
+  LOAD_MODE=mmap SPEC_TYPE=none DRAFT= SPEC_REPLAY=0 CTX_CHECKPOINTS=0 PROXY=0 SME=0 MM_SME=0
+  # layer numbers >= N as a regex (no upper bound, no commas: -ot splits its value on ','); anchored so blk.2. != blk.20.
+  digits() { local k; for (( k = 0; k < $1; k++ )); do printf '[0-9]'; done; }
+  ge() {   # N itself, every longer number, and per digit: same prefix, a bigger digit, any digits after
+    local n=$1 d=${#1} i c alt
+    alt="$n|[1-9]$(digits "$d")+"
+    for (( i = 0; i < d; i++ )); do
+      c=${n:i:1}
+      [ "$c" = 9 ] && continue
+      alt="$alt|${n:0:i}$([ "$c" = 8 ] && echo 9 || echo "[$((c + 1))-9]")$(digits $((d - i - 1)))"
+    done
+    echo "$alt"
+  }
+  # --no-repack: the CPU backend would otherwise read layers N+ at load and keep an anonymous repacked copy (847 MiB at
+  # IQ2_XS L=20, measured). The warmup decode goes through the phone like any other batch, so it stays on: it also checks
+  # the tail has its head (a head-less tail fails it with "worker returned 0 logits").
+  SD_ARGS=(-ot "^blk\.($(ge "$SDL"))\.=CPU" -ot "^output=CPU" --no-repack)
+  echo "serve: SPLIT DECODE mode ON, L=$SDL: Mac GPU maps layers [0,$SDL), layers $SDL+ and output stay CPU-mapped (never read), phone tail at $LLAMA_SPLIT_TAIL runs the rest + head; spec off, no drafter, no checkpoints, no proxy, SME off" >&2
+  if ! grep -qa LLAMA_SPLIT_DECODE "$B"/llama-server "$B"/*.dylib 2>/dev/null; then
+    echo "serve: ************************************************************************************************" >&2
+    echo "serve: WARNING: this llama.cpp has NO split decode (LLAMA_SPLIT_DECODE). Decode will NOT be split:" >&2
+    echo "serve: every generated token runs layers $SDL+ and the head on the Mac CPU, paging them from the SSD (seconds per" >&2
+    echo "serve: token). Rebuild llama.cpp (git submodule update, then the cmake build in the README) before sending requests." >&2
+    echo "serve: ************************************************************************************************" >&2
+  fi
+fi
 # PHONE=auto (default): find the iPhone on the USB cable (scripts/phone-up.sh: its current address, relaunch the Backburner app if it
 # stopped, wait for the prefill tail) and use it for split prefill (LLAMA_SPLIT_TAIL) and for the old KV past the Mac's cells
 # (PHONE_KV: nothing changes below 64k). PHONE=0: Mac only. An explicit LLAMA_SPLIT_TAIL / PHONE_KV wins.
@@ -211,7 +261,7 @@ phone_note starting
   --spec-type "${SPEC_TYPE:-ngram-simple,draft-dflash}" ${DRAFT:+-md "$DRAFT" -ngld 999 --spec-draft-n-max 7} ${REPLAY[@]+"${REPLAY[@]}"} \
   --slot-save-path "$CACHE_DIR/" --jinja --host 127.0.0.1 --port "$SPORT" \
   --cache-ram "${CACHE_RAM:-0}" --ctx-checkpoints "${CTX_CHECKPOINTS:-3}" \
-  ${EXTRA[@]+"${EXTRA[@]}"} ${SERVER_ARGS:-} "$@" &
+  ${SD_ARGS[@]+"${SD_ARGS[@]}"} ${EXTRA[@]+"${EXTRA[@]}"} ${SERVER_ARGS:-} "$@" &
 SRV=$!
 PRX=
 if [ "${PROXY:-1}" != 0 ]; then
