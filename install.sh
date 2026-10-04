@@ -145,7 +145,7 @@ cat > "$HOME/.local/bin/backburner" <<EOF
 # backburner - run Backburner (made by install.sh). Settings go in front: CTX=131072 backburner
 #   backburner            start the server (OpenAI-compatible, http://127.0.0.1:8080/v1), with the phone if it's plugged in
 #   backburner phone      put the phone's half of the model on the plugged-in phone (once per phone)
-#   backburner update     re-run the installer (updates the repo and the engine)
+#   backburner update     re-run the installer (updates the repo and the engine) with this install's folders and TAIL_L
 set -eu
 DIR="$DIR"
 export PATH="\$DIR/.venv/bin:\$PATH" PY="\$DIR/.venv/bin/python3"
@@ -157,7 +157,8 @@ if [ "\$MEM_MB" -le 32768 ] && [ "\$(sysctl -n iogpu.wired_limit_mb)" -lt "\$WAN
 fi
 case "\${1:-}" in
   phone)  exec "\$DIR/scripts/phone-tail.sh" "$TAIL" ;;
-  update) curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | bash ;;
+  update) export BACKBURNER_DIR="\${BACKBURNER_DIR:-\$DIR}" MODELS="\${MODELS:-$MODELS}" TAIL_L="\${TAIL_L:-$TAIL_L}"
+          curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | bash ;;
   *)      exec "\$DIR/scripts/serve.sh" ;;
 esac
 EOF
