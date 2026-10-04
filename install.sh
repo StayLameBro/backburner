@@ -52,7 +52,7 @@ say "Mac: $(sysctl -n machdep.cpu.brand_string), $MEM_GB GB, macOS $MACOS"
 if [ -d "$DIR/.git" ]; then
   say "updating $DIR"
   git -C "$DIR" pull --ff-only -q || warn "could not update $DIR (local changes?): keeping it as is"
-  git -C "$DIR" submodule update --init --depth 1 -q
+  git -C "$DIR" submodule update --init --depth 1 -q || warn "could not update llama.cpp (local changes?): keeping it as is"
 else
   say "cloning into $DIR"
   git clone -q --depth 1 --recurse-submodules --shallow-submodules "https://github.com/$REPO" "$DIR"
@@ -62,16 +62,17 @@ cd "$DIR"
 # 3. the Mac engine
 BIN=llama.cpp/build-metal/bin
 # a downloaded engine is replaced when a newer release has one (`backburner update`); it remembers which release it came from
-# in $BIN/.release-url. An engine built here from source (BUILD=1: build-metal/CMakeCache.txt) is never replaced.
+# in $BIN/.release-url. An engine built here from source (BUILD=1: build-metal/CMakeCache.txt) is never replaced by a
+# download; every run rebuilds it from the current llama.cpp instead (cmake recompiles only what changed).
 URL=""
 if [ "${BUILD:-0}" != 1 ] && [ ! -f llama.cpp/build-metal/CMakeCache.txt ]; then
   URL=$(asset_url backburner-mac-arm64.tar.gz) || true
 fi
-if [ ! -x "$BIN/llama-server" ] || [ ! -x "$BIN/llama-quantize" ] || \
+if [ ! -x "$BIN/llama-server" ] || [ ! -x "$BIN/llama-quantize" ] || [ -f llama.cpp/build-metal/CMakeCache.txt ] || \
    { [ -n "$URL" ] && [ "$(cat "$BIN/.release-url" 2>/dev/null)" != "$URL" ]; }; then
   mkdir -p "$BIN"
   if [ "${BUILD:-0}" = 1 ] || [ -f llama.cpp/build-metal/CMakeCache.txt ]; then
-    say "building the Mac engine from source (~10 min)"
+    say "building the Mac engine from source (~10 min the first time)"
     cmake -S llama.cpp -B llama.cpp/build-metal -DCMAKE_BUILD_TYPE=Release
     cmake --build llama.cpp/build-metal --target llama-server llama-quantize -j
   else
