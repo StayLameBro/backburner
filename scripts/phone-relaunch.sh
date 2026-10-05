@@ -12,5 +12,5 @@ fi
 [ -n "$UDID" ] || { echo "phone-relaunch: no iPhone on the USB cable" >&2; exit 1; }
 BID=$("$(dirname "$0")/bundle-id.sh" "$UDID")
 xcrun devicectl device process launch --terminate-existing --device "$UDID" "$BID" 2>&1 | grep -v 'provisioning paramter' | grep -E 'Launched|Locked|rror' | head -1
-for i in $(seq 1 30); do nc -z -G1 "$IP" 50060 2>/dev/null && { echo "tail up after ~$((i*2)) s"; exit 0; }; sleep 2; done
+for i in $(seq 1 30); do /usr/bin/nc -z -G1 "$IP" 50060 2>/dev/null && { echo "tail up after ~$((i*2)) s"; exit 0; }; sleep 2; done
 echo "tail not up after 60 s" >&2; exit 1

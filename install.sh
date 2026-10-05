@@ -44,7 +44,7 @@ if [ "$MEM_GB" -lt 24 ] && [ "${FORCE:-0}" != 1 ]; then
   die "the 27B model needs a Mac with 24 GB or more (this one has $MEM_GB GB). FORCE=1 to try anyway"
 fi
 command -v git >/dev/null && command -v python3 >/dev/null || die "install the command line tools first: xcode-select --install"
-FREE_GB=$(df -g "$HOME" | awk 'NR==2{print $4}')
+FREE_GB=$(/bin/df -g "$HOME" | awk 'NR==2{print $4}')
 [ "$FREE_GB" -ge 30 ] || warn "only $FREE_GB GB free; a fresh install downloads/creates ~28 GB"
 say "Mac: $(sysctl -n machdep.cpu.brand_string), $MEM_GB GB, macOS $MACOS"
 

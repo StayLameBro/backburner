@@ -57,5 +57,5 @@ echo "  no home-folder paths or private strings in any asset"
 
 (cd "$OUT" && shasum -a 256 Backburner.ipa backburner-mac-arm64.tar.gz ane-template.tar.gz > SHA256SUMS)
 echo "== done: $OUT (v$VERSION)"
-echo "  IPA size for altstore/source.json: $(stat -f %z "$OUT/Backburner.ipa")"
+echo "  IPA size for altstore/source.json: $(/usr/bin/stat -f %z "$OUT/Backburner.ipa")"
 cat "$OUT/SHA256SUMS"

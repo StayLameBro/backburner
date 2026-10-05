@@ -23,10 +23,10 @@ NAME="wired iPhone"
 
 find_ip() {
   local ifs ip
-  ifs=$(ifconfig | awk '/^[a-z]/{i=$1} /inet 169\.254\./{print i}' | tr -d :)
+  ifs=$(/sbin/ifconfig | awk '/^[a-z]/{i=$1} /inet 169\.254\./{print i}' | tr -d :)
   for i in $ifs; do
-    local own; own=$(ifconfig "$i" | awk '/inet 169\.254\./{print $2}')
-    ip=$(ping -b "$i" -c 2 -t 2 169.254.255.255 2>/dev/null | awk '/bytes from/{sub(":","",$4); print $4}' | grep -v "^$own$" | head -1)
+    local own; own=$(/sbin/ifconfig "$i" | awk '/inet 169\.254\./{print $2}')
+    ip=$(/sbin/ping -b "$i" -c 2 -t 2 169.254.255.255 2>/dev/null | awk '/bytes from/{sub(":","",$4); print $4}' | grep -v "^$own$" | head -1)
     [ -n "$ip" ] && { echo "$ip"; return 0; }
   done
   return 1
@@ -34,10 +34,10 @@ find_ip() {
 
 all_ips() {   # every other device answering on the link-local interfaces (more than one phone: one line each)
   local ifs
-  ifs=$(ifconfig | awk '/^[a-z]/{i=$1} /inet 169\.254\./{print i}' | tr -d :)
+  ifs=$(/sbin/ifconfig | awk '/^[a-z]/{i=$1} /inet 169\.254\./{print i}' | tr -d :)
   for i in $ifs; do
-    local own; own=$(ifconfig "$i" | awk '/inet 169\.254\./{print $2}')
-    ping -b "$i" -c 2 -t 2 169.254.255.255 2>/dev/null | awk '/bytes from/{sub(":","",$4); print $4}' | grep -v "^$own$"
+    local own; own=$(/sbin/ifconfig "$i" | awk '/inet 169\.254\./{print $2}')
+    /sbin/ping -b "$i" -c 2 -t 2 169.254.255.255 2>/dev/null | awk '/bytes from/{sub(":","",$4); print $4}' | grep -v "^$own$"
   done | sort -u
 }
 
@@ -76,10 +76,10 @@ if [ -z "$VER" ]; then
   [ -n "$VER" ] || { say "Backburner didn't come up on $IP after a relaunch"; exit 1; }
 fi
 TAIL=0
-for _ in $(seq 1 "$TAIL_WAIT"); do nc -z -G 1 "$IP" 50060 >/dev/null 2>&1 && { TAIL=1; break; }; sleep 1; done
+for _ in $(seq 1 "$TAIL_WAIT"); do /usr/bin/nc -z -G 1 "$IP" 50060 >/dev/null 2>&1 && { TAIL=1; break; }; sleep 1; done
 [ $TAIL = 1 ] || say "the prefill tail (:50060) isn't up (no tail.gguf on the phone?): split prefill stays off"
 # Metal KV and tail weights increase system wired memory, not the process footprint.
-MEM=$(printf 'mem\n' | nc -G 2 "$IP" 50061 2>/dev/null | python3 -c "import json,sys; m=json.loads(sys.stdin.read()); print(int(m['avail_mb']), int(m['sys_wired_mb']))" 2>/dev/null)
+MEM=$(printf 'mem\n' | /usr/bin/nc -G 2 "$IP" 50061 2>/dev/null | python3 -c "import json,sys; m=json.loads(sys.stdin.read()); print(int(m['avail_mb']), int(m['sys_wired_mb']))" 2>/dev/null)
 read -r AVAIL WIRED <<< "${MEM:-0 0}"
 say "$NAME at $IP: phone-attn v$VER, prefill tail $([ $TAIL = 1 ] && echo up || echo down), ${WIRED} MiB system wired, ${AVAIL} MiB app budget"
 echo "$IP $TAIL $VER $AVAIL $WIRED $NAME"
@@ -88,7 +88,7 @@ if [ "${PHONES_ALL:-0}" = 1 ]; then
   for ip2 in $(all_ips); do
     [ "$ip2" = "$IP" ] && continue
     v2=$(hello "$ip2"); { [ -n "$v2" ] && [ "$v2" != ROUTE_ERROR ]; } || continue
-    m2=$(printf 'mem\n' | nc -G 2 "$ip2" 50061 2>/dev/null | python3 -c "import json,sys; m=json.loads(sys.stdin.read()); print(int(m['avail_mb']), int(m['sys_wired_mb']))" 2>/dev/null)
+    m2=$(printf 'mem\n' | /usr/bin/nc -G 2 "$ip2" 50061 2>/dev/null | python3 -c "import json,sys; m=json.loads(sys.stdin.read()); print(int(m['avail_mb']), int(m['sys_wired_mb']))" 2>/dev/null)
     read -r a2 w2 <<< "${m2:-0 0}"
     say "another iPhone at $ip2: phone-attn v$v2, ${w2} MiB system wired, ${a2} MiB app budget"
     echo "$ip2 0 $v2 $a2 $w2 iPhone"

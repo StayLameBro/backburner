@@ -30,7 +30,7 @@ except Exception as e:
     print('down')
 PY
 }
-mem() { printf 'mem\n' | nc -G 2 "$IP" 50061 2>/dev/null; echo; }
+mem() { printf 'mem\n' | /usr/bin/nc -G 2 "$IP" 50061 2>/dev/null; echo; }
 
 if [ -z "$TAIL" ]; then
   echo "phone $IP: tail L=$(loaded)"; mem; exit 0
@@ -46,7 +46,7 @@ UDID=${UDID:0:8}-${UDID:8}
 BID=$(scripts/bundle-id.sh "$UDID") || exit 2
 perl -e 'alarm 30; exec @ARGV' xcrun devicectl device process launch --terminate-existing --device "$UDID" "$BID" >/dev/null 2>&1 \
   || { echo "relaunch failed: unlock the phone, reopen Backburner, then run: scripts/phone-tail.sh (no args) to check"; exit 2; }
-for _ in $(seq 1 60); do nc -z -G 1 "$IP" 50060 >/dev/null 2>&1 && break; sleep 2; done
+for _ in $(seq 1 60); do /usr/bin/nc -z -G 1 "$IP" 50060 >/dev/null 2>&1 && break; sleep 2; done
 sleep 3
 HAVE=$(loaded)
 echo "phone $IP: tail L=$HAVE"; mem

@@ -86,7 +86,7 @@ if [ "${PHONE:-auto}" != 0 ] && [ -z "${LLAMA_SPLIT_TAIL:-}${PHONE_KV:-}" ]; the
     # The phone's Neural Engine takes part of the old-key attention while writing past 64k (docs/ANE.md: 279 -> 176 ms per token
     # at 140k). It needs the page template in the app's Documents, which installing the app doesn't bring: push it once
     # (scripts/phone-ane.sh builds it first if needed, with coremltools). PHONE_ANE=0: don't check.
-    ane_on() { printf 'mem\n' | nc -G 2 "$1" 50061 2>/dev/null | grep -q '"pa_ane"'; }
+    ane_on() { printf 'mem\n' | /usr/bin/nc -G 2 "$1" 50061 2>/dev/null | grep -q '"pa_ane"'; }
     PANE=unchecked
     if [ "${PHONE_ANE:-1}" != 0 ]; then
       if ane_on "$PIP"; then PANE=on
@@ -254,7 +254,7 @@ mkdir -p cache && echo "$TOTAL" > cache/server-context
 
 # the the Backburner app screen follows the server: starting (the Mac loads the model), ready (it answers; the phone wires its layers into
 # GPU memory now), stopped. The proxy reports each request (reading / thinking / writing / done).
-phone_note() { [ -n "${PHONE_IP:-}" ] && printf 'mac %s\n' "$*" | nc -G 1 -w 2 "$PHONE_IP" 50061 >/dev/null 2>&1; true; }
+phone_note() { [ -n "${PHONE_IP:-}" ] && printf 'mac %s\n' "$*" | /usr/bin/nc -G 1 -w 2 "$PHONE_IP" 50061 >/dev/null 2>&1; true; }
 phone_note starting
 
 "$B/llama-server" -m "$MODEL" -ngl 999 -fa on -c "$CTX" -np 1 -ctk "$KV" -ctv "$KV" -t 2 -tb 2 \
