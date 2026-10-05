@@ -42,7 +42,10 @@ SECRET = [
     rx(r"\bgithub_", r"pat_[A-Za-z0-9_]{40,}\b"),
     rx(r"\bhf_", r"[A-Za-z]{34,}\b"),
     rx(r"\bsk-", r"ant-[A-Za-z0-9_-]{20,}"),
-    rx(r"\bsk-", r"(proj-)?[A-Za-z0-9]{32,}\b"),
+    # OpenAI: project / service-account / admin keys put - and _ in the body;
+    # legacy sk- keys stay alphanumeric-only so kebab-case text like sk-learn-… does not match.
+    rx(r"\bsk-", r"(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}"),
+    rx(r"\bsk-", r"(?!proj-|svcacct-|admin-)[A-Za-z0-9]{32,}\b"),
     rx(r"\b(AKIA|ASIA)", r"[0-9A-Z]{16}\b"),
     rx(r"\bxox", r"[baprs]-[A-Za-z0-9-]{10,}"),
     rx(r"\bAIza", r"[0-9A-Za-z_-]{35}\b"),
