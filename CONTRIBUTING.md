@@ -20,7 +20,9 @@ before you spend time on it.
 
 - **Same answers.** Anything that touches the model's math (kernels, split prefill, the phone-held context) must keep greedy
   output identical, or explain exactly where and why it differs. `bench/launch-bench.py` records greedy runs and
-  `bench/launch-quality.py --a <before> --b <after>` compares them; post its output in the pull request.
+  `bench/launch-quality.py --a <before> --b <after>` compares them; post its output in the pull request. For the
+  probability columns, run both sides as `fork-nospec`: with speculative decoding the server returns probabilities for the
+  first token only (#12), while the identical-tokens column covers every token either way.
 - **Measured speed.** Speed claims come with the command, the hardware, and before/after numbers from the same build and
   settings (`bench/turn-bench.py`, `bench/session-bench.py`, `bench/long-bench.py`). Note anything else that was running.
 - **Nothing breaks without the phone.** `PHONE=0 scripts/serve.sh` (the Mac alone) must keep working.

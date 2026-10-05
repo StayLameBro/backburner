@@ -3,6 +3,8 @@
 recorded (bench/results/runs.jsonl) between two configs at each depth:
   - identical: how many of the generated tokens match before the first difference (greedy, same prompt);
   - top-1 agreement and the largest probability gap of the top token over the positions both runs share (up to 64);
+  - probs: how many of those positions had probabilities in both rows. Speculative decoding returns them for the first
+    token only (#12), so 1 / 64 means the two columns before it rest on one token; fork-nospec gives all of them.
   - first token: the top-10 log-probs right after the prompt, which depend only on how the prompt was read.
 Each side is the latest run of its config; with --a and --b the same config, A is the run before the latest. Every depth
 prints both rows' run_id and prompt_sha256, and a warning if they are one run, read different prompts, or lack a hash.
@@ -32,7 +34,7 @@ def warn(msg):
 
 
 print(f'{a.a} vs {a.b} (greedy, same prompt) from {a.file}')
-print(f'{"depth":>7} {"identical":>12} {"top-1 same":>11} {"max |dp| top-1":>15} {"first-token top-10 overlap":>27}')
+print(f'{"depth":>7} {"identical":>12} {"top-1 same":>11} {"max |dp| top-1":>15} {"probs":>11} {"first-token top-10 overlap":>27}')
 shown = 0
 for d in sorted({k[1] for k in runs}):
     rows_a, rows_b = runs.get((a.a, d), []), runs.get((a.b, d), [])
@@ -56,7 +58,8 @@ for d in sorted({k[1] for k in runs}):
         if pa[i][0][0] in lb:
             dp = max(dp, abs(math.exp(pa[i][0][1]) - math.exp(lb[pa[i][0][0]])))
     ov = len({x[0] for x in pa[0]} & {x[0] for x in pb[0]}) if pa and pb and pa[0] and pb[0] else 0
-    print(f'{d:7d} {same:5d} / {min(len(ta), len(tb)):<5d} {agree:4d} / {n:<4d} {dp:15.4f} {ov:22d} / 10')
+    want = min(64, same + 1, len(ta), len(tb))   # positions with the same history, as far as probabilities are recorded
+    print(f'{d:7d} {same:5d} / {min(len(ta), len(tb)):<5d} {agree:4d} / {n:<4d} {dp:15.4f} {n:4d} / {want:<4d} {ov:22d} / 10')
     ia, ib = ra.get('run_id'), rb.get('run_id')
     ha, hb = ra.get('prompt_sha256'), rb.get('prompt_sha256')
     for side, r, h in (('a', ra, ha), ('b', rb, hb)):
@@ -68,5 +71,8 @@ for d in sorted({k[1] for k in runs}):
              'bench/prompt.txt): nothing shows both runs read the same prompt')
     elif ha != hb:
         warn(f'the two runs read different prompts ({ha[:16]} vs {hb[:16]}): the comparison means nothing')
+    if n < want:
+        warn(f'probabilities on only {n} of {want} positions: "top-1 same" and "max |dp|" cover {n}, not {want} (speculative '
+             'decoding returns them for the first token only, #12; fork-nospec has them all). "identical" covers every token.')
 if not shown:
     print('no depth has decode rows for both' + (f' (two runs of {a.a})' if a.a == a.b else ''))
