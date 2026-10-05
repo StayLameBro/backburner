@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """launch-bench-mlx.py - the MLX row of the published speed table: mlx-lm with Qwen3.8-27B 4-bit (MLX's own format, group 64),
-the same prompt as bench/launch-bench.py (llama.cpp's src/*.cpp, fixed order), the same steps.
+the same prompt as bench/launch-bench.py (bench/prompt.txt), the same steps.
 
   1. prefill depth curve: --step appends up to --max, each pushed through the model in mlx-lm's default 2048-token chunks
      against one prompt cache (prefill speed at that depth; the running sum is the cold read time);
   2. decode at --max: append the same question, generate --gen tokens greedily (mlx_lm.stream_generate);
   3. decode at 8192: a fresh cache read to 8192, then the same (the hybrid model's recurrent cache can't be rewound).
-Rows go to bench/results/results.jsonl with config "mlx". Needs mlx-lm (any venv): PY=... bench/launch-bench-mlx.py
+Rows go to bench/results/results.jsonl with config "mlx" and the prompt's sha256. Needs mlx-lm (any venv):
+PY=... bench/launch-bench-mlx.py
 
   $VENV/bin/python bench/launch-bench-mlx.py
 """
-import argparse, glob, json, os, time
+import argparse, hashlib, json, os, time
 import mlx.core as mx
 import mlx_lm
 from mlx_lm import load, stream_generate
@@ -29,11 +30,14 @@ ap.add_argument('--kv-bits', type=int, default=8, help='quantized KV cache for t
 ap.add_argument('--cache-limit-gb', type=float, default=1.0, help="cap on MLX's buffer cache (freed buffers kept for reuse); "
                 'the default (no cap) grew into swap on a 24 GB Mac')
 ap.add_argument('--note', default='')
+ap.add_argument('--prompt', default=os.path.join(ROOT, 'bench', 'prompt.txt'))
 a = ap.parse_args()
 OUT = os.path.join(ROOT, 'bench', 'results')
+PROMPT = open(a.prompt, 'rb').read()
 say = lambda *x: print(time.strftime('%H:%M:%S'), *x, flush=True)
 base = dict(config='mlx', rep=1, version=f'mlx-lm {mlx_lm.__version__}, mlx {mx.__version__}', model=os.path.basename(a.model),
-            kv=f'{a.kv_bits}-bit g64' if a.kv_bits else 'f16 (mlx default)', cache_limit_gb=a.cache_limit_gb, note=a.note)
+            kv=f'{a.kv_bits}-bit g64' if a.kv_bits else 'f16 (mlx default)', cache_limit_gb=a.cache_limit_gb, note=a.note,
+            prompt_sha256=hashlib.sha256(PROMPT).hexdigest())
 if a.cache_limit_gb > 0:
     mx.set_cache_limit(int(a.cache_limit_gb * (1 << 30)))
 
@@ -51,12 +55,7 @@ def record(kind, **kw):
 
 
 model, tok = load(a.model)
-text = ''
-for f in sorted(glob.glob(f'{ROOT}/llama.cpp/src/*.cpp')):
-    text += f'\n// ===== {os.path.basename(f)} =====\n' + open(f, errors='replace').read()
-    if len(text) > a.max * 5:
-        break
-toks = tok.encode(text)
+toks = tok.encode(PROMPT.decode('utf-8'))
 q = tok.encode(QUESTION)
 say(f'{base["version"]}: {len(toks)} prompt tokens available')
 

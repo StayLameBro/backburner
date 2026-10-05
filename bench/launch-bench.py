@@ -3,18 +3,20 @@
 same KV type, same prompts.
 
 One server load per config, then:
-  1. Prefill depth curve: real source code (llama.cpp's own src/*.cpp, fixed order) fed in --step-token appends up to --max
+  1. Prefill depth curve: real source code (bench/prompt.txt: llama.cpp's src/*.cpp at a pinned commit, written by
+     bench/make-prompt.py, so every checkout reads the same prompt) fed in --step-token appends up to --max
      tokens. Each append extends the cached prompt, so its timing is "prefill speed at that depth"; the running sum is the
      cold time to read the whole prompt. At each --save depth the slot is saved.
   2. Decode at depth: restore each saved slot, append a fixed question, generate --gen tokens greedily. Reports tok/s, the
      generated token ids and the top-10 log-probs of the first 64 (bench/launch-quality.py compares configs with them).
-Every measurement is one JSON line in bench/results/results.jsonl with the config, versions and settings.
+Every measurement is one JSON line in bench/results/results.jsonl with the config, versions, settings and the prompt's
+sha256.
 
   bench/launch-bench.py --config stock
   bench/launch-bench.py --config fork-mac
   bench/launch-bench.py --config fork-phone
 """
-import argparse, glob, json, os, platform, subprocess, sys, time, urllib.request
+import argparse, hashlib, json, os, platform, subprocess, sys, time, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL = os.path.expanduser('~/Models/Qwen3.8-27B-IQ4_XS.gguf')
@@ -31,9 +33,12 @@ ap.add_argument('--rep', type=int, default=1, help='label only: which repeat thi
 ap.add_argument('--ctx', type=int, default=65536)
 ap.add_argument('--port', type=int, default=8097)
 ap.add_argument('--note', default='')
+ap.add_argument('--prompt', default=os.path.join(ROOT, 'bench', 'prompt.txt'))
 a = ap.parse_args()
 URL = f'http://127.0.0.1:{a.port}'
 OUT = os.path.join(ROOT, 'bench', 'results')
+PROMPT = open(a.prompt, 'rb').read()
+PROMPT_SHA = hashlib.sha256(PROMPT).hexdigest()
 SLOTS = os.path.join(OUT, 'slots', a.config)
 os.makedirs(SLOTS, exist_ok=True)
 saves = sorted(int(x) for x in a.save.split(','))
@@ -54,7 +59,8 @@ def git(*args):
 
 
 def record(kind, **kw):
-    row = dict(kind=kind, config=a.config, rep=a.rep, time=time.strftime('%Y-%m-%d %H:%M:%S'), note=a.note, **kw)
+    row = dict(kind=kind, config=a.config, rep=a.rep, time=time.strftime('%Y-%m-%d %H:%M:%S'), note=a.note,
+               prompt_sha256=PROMPT_SHA, **kw)
     with open(os.path.join(OUT, 'results.jsonl'), 'a') as f:
         f.write(json.dumps(row) + '\n')
 
@@ -83,6 +89,7 @@ else:
     version = 'fork ' + git(f'{ROOT}/llama.cpp', 'rev-parse', '--short', 'HEAD') + ' (integration ' + git(ROOT, 'rev-parse', '--short', 'HEAD') + ')'
     srv = subprocess.Popen(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, env=env)
 say(f'{a.config}: {version}; log {log_path}')
+say(f'prompt {a.prompt}, sha256 {PROMPT_SHA[:16]}')
 try:
     for _ in range(600):
         try:
@@ -102,15 +109,10 @@ try:
     base = dict(version=version, model=os.path.basename(MODEL), kv='q8_0', ctx=a.ctx, mac=platform.node(),
                 phone=phone)
 
-    # ---- prompt tokens: llama.cpp's own source, fixed order, until --max + margin tokens
-    text, files = '', sorted(glob.glob(f'{ROOT}/llama.cpp/src/*.cpp'))
-    for f in files:
-        text += f'\n// ===== {os.path.basename(f)} =====\n' + open(f, errors='replace').read()
-        if len(text) > a.max * 5:
-            break
-    toks = post('/tokenize', {'content': text})['tokens']
+    # ---- prompt tokens: the pinned prompt file
+    toks = post('/tokenize', {'content': PROMPT.decode('utf-8')})['tokens']
     if len(toks) < a.max:
-        sys.exit(f'only {len(toks)} tokens of source, need {a.max}')
+        sys.exit(f'only {len(toks)} tokens in {a.prompt}, need {a.max}')
     q = post('/tokenize', {'content': QUESTION})['tokens']
 
     # ---- 1. prefill depth curve
