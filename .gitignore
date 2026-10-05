@@ -11,3 +11,4 @@ xcuserdata/
 bench/results/slots/
 *.bin
 *.bin.dft
+bench/results/runs.jsonl

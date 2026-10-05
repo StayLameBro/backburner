@@ -6,8 +6,8 @@ the same prompt as bench/launch-bench.py (bench/prompt.txt), the same steps.
      against one prompt cache (prefill speed at that depth; the running sum is the cold read time);
   2. decode at --max: append the same question, generate --gen tokens greedily (mlx_lm.stream_generate);
   3. decode at 8192: a fresh cache read to 8192, then the same (the hybrid model's recurrent cache can't be rewound).
-Rows go to bench/results/results.jsonl with config "mlx" and the prompt's sha256. Needs mlx-lm (any venv):
-PY=... bench/launch-bench-mlx.py
+Rows go to bench/results/runs.jsonl (untracked; --out to change) with config "mlx", a run_id and the prompt's sha256.
+Needs mlx-lm (any venv): PY=... bench/launch-bench-mlx.py
 
   $VENV/bin/python bench/launch-bench-mlx.py
 """
@@ -31,13 +31,13 @@ ap.add_argument('--cache-limit-gb', type=float, default=1.0, help="cap on MLX's 
                 'the default (no cap) grew into swap on a 24 GB Mac')
 ap.add_argument('--note', default='')
 ap.add_argument('--prompt', default=os.path.join(ROOT, 'bench', 'prompt.txt'))
+ap.add_argument('--out', default=os.path.join(ROOT, 'bench', 'results', 'runs.jsonl'))
 a = ap.parse_args()
-OUT = os.path.join(ROOT, 'bench', 'results')
 PROMPT = open(a.prompt, 'rb').read()
 say = lambda *x: print(time.strftime('%H:%M:%S'), *x, flush=True)
 base = dict(config='mlx', rep=1, version=f'mlx-lm {mlx_lm.__version__}, mlx {mx.__version__}', model=os.path.basename(a.model),
             kv=f'{a.kv_bits}-bit g64' if a.kv_bits else 'f16 (mlx default)', cache_limit_gb=a.cache_limit_gb, note=a.note,
-            prompt_sha256=hashlib.sha256(PROMPT).hexdigest())
+            run_id=time.strftime('%Y%m%d-%H%M%S-mlx-') + os.urandom(2).hex(), prompt_sha256=hashlib.sha256(PROMPT).hexdigest())
 if a.cache_limit_gb > 0:
     mx.set_cache_limit(int(a.cache_limit_gb * (1 << 30)))
 
@@ -50,7 +50,7 @@ def new_cache():
 
 
 def record(kind, **kw):
-    with open(os.path.join(OUT, 'results.jsonl'), 'a') as f:
+    with open(a.out, 'a') as f:
         f.write(json.dumps(dict(kind=kind, time=time.strftime('%Y-%m-%d %H:%M:%S'), **base, **kw)) + '\n')
 
 

@@ -9,8 +9,8 @@ One server load per config, then:
      cold time to read the whole prompt. At each --save depth the slot is saved.
   2. Decode at depth: restore each saved slot, append a fixed question, generate --gen tokens greedily. Reports tok/s, the
      generated token ids and the top-10 log-probs of the first 64 (bench/launch-quality.py compares configs with them).
-Every measurement is one JSON line in bench/results/results.jsonl with the config, versions, settings and the prompt's
-sha256.
+Every measurement is one JSON line in bench/results/runs.jsonl (untracked; --out to change) with the config, versions,
+settings, the run's run_id and the prompt's sha256. bench/results/results.jsonl holds the published rows and is not written.
 
   bench/launch-bench.py --config stock
   bench/launch-bench.py --config fork-mac
@@ -34,11 +34,13 @@ ap.add_argument('--ctx', type=int, default=65536)
 ap.add_argument('--port', type=int, default=8097)
 ap.add_argument('--note', default='')
 ap.add_argument('--prompt', default=os.path.join(ROOT, 'bench', 'prompt.txt'))
+ap.add_argument('--out', default=os.path.join(ROOT, 'bench', 'results', 'runs.jsonl'))
 a = ap.parse_args()
 URL = f'http://127.0.0.1:{a.port}'
-OUT = os.path.join(ROOT, 'bench', 'results')
+OUT = os.path.join(ROOT, 'bench', 'results')   # server logs and saved slots
 PROMPT = open(a.prompt, 'rb').read()
 PROMPT_SHA = hashlib.sha256(PROMPT).hexdigest()
+RUN_ID = time.strftime('%Y%m%d-%H%M%S-') + a.config + '-' + os.urandom(2).hex()
 SLOTS = os.path.join(OUT, 'slots', a.config)
 os.makedirs(SLOTS, exist_ok=True)
 saves = sorted(int(x) for x in a.save.split(','))
@@ -59,9 +61,9 @@ def git(*args):
 
 
 def record(kind, **kw):
-    row = dict(kind=kind, config=a.config, rep=a.rep, time=time.strftime('%Y-%m-%d %H:%M:%S'), note=a.note,
+    row = dict(kind=kind, config=a.config, rep=a.rep, time=time.strftime('%Y-%m-%d %H:%M:%S'), note=a.note, run_id=RUN_ID,
                prompt_sha256=PROMPT_SHA, **kw)
-    with open(os.path.join(OUT, 'results.jsonl'), 'a') as f:
+    with open(a.out, 'a') as f:
         f.write(json.dumps(row) + '\n')
 
 
@@ -89,7 +91,7 @@ else:
     version = 'fork ' + git(f'{ROOT}/llama.cpp', 'rev-parse', '--short', 'HEAD') + ' (integration ' + git(ROOT, 'rev-parse', '--short', 'HEAD') + ')'
     srv = subprocess.Popen(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, env=env)
 say(f'{a.config}: {version}; log {log_path}')
-say(f'prompt {a.prompt}, sha256 {PROMPT_SHA[:16]}')
+say(f'run {RUN_ID}, prompt {a.prompt} sha256 {PROMPT_SHA[:16]}, rows to {a.out}')
 try:
     for _ in range(600):
         try:
