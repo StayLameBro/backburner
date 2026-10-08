@@ -12,7 +12,7 @@ LLAMA="${LLAMA_DIR:-${ROOT}/llama.cpp}"
 IOS="${ROOT}/ios/Backburner"
 FW="${IOS}/Frameworks"
 MIN_IOS="${MIN_IOS:-16.4}"
-JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 8)"
+JOBS="${JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || echo 8)}"
 IPA="${IPA:-0}"
 TEAM="${DEVELOPMENT_TEAM:-}"
 if [[ "${IPA}" != 1 && -z "${TEAM}" ]]; then
@@ -23,6 +23,12 @@ UDID="${UDID:-}"
 
 if [[ ! -d "${LLAMA}" ]]; then
   echo "missing ${LLAMA}"
+  exit 1
+fi
+# what a stock Mac lacks (GitHub #23): say how to get it before a long build fails half way
+command -v cmake >/dev/null || { echo "cmake is missing: brew install cmake (or https://cmake.org/download)"; exit 1; }
+if ! xcrun -sdk iphoneos metal -v >/dev/null 2>&1; then
+  echo "the Metal Toolchain is missing (xcrun metal fails): xcodebuild -downloadComponent MetalToolchain (~840 MB, once)"
   exit 1
 fi
 
@@ -170,14 +176,31 @@ if [[ "${IPA}" == 1 ]]; then
 else
   SIGN_ARGS=(-allowProvisioningUpdates DEVELOPMENT_TEAM="${TEAM}" CODE_SIGN_STYLE=Automatic)
 fi
-xcodebuild \
-  -project Sidecar.xcodeproj \
-  -scheme Sidecar \
-  -configuration Release \
-  -destination "generic/platform=iOS" \
-  "${SIGN_ARGS[@]}" \
-  -archivePath "${ROOT}/ios/build/Sidecar.xcarchive" \
-  archive
+archive() {
+  xcodebuild \
+    -project Sidecar.xcodeproj \
+    -scheme Sidecar \
+    -configuration Release \
+    -destination "generic/platform=iOS" \
+    "${SIGN_ARGS[@]}" \
+    -archivePath "${ROOT}/ios/build/Sidecar.xcarchive" \
+    archive 2>&1 | tee "${ROOT}/ios/build/archive.log"
+  return "${PIPESTATUS[0]}"
+}
+if ! archive; then
+  # a free (personal) team gets a profile only for devices Xcode has registered, and archiving for a generic device
+  # registers none: build once for the wired phone (which registers it), then archive again (GitHub #23)
+  if [[ "${IPA}" != 1 && -n "${UDID}" ]] && grep -q "has no devices" "${ROOT}/ios/build/archive.log"; then
+    echo "registering ${UDID} with your team (free teams need this once per device), then archiving again"
+    xcodebuild -project Sidecar.xcodeproj -scheme Sidecar -configuration Release -destination "id=${UDID}" \
+      "${SIGN_ARGS[@]}" build -quiet
+    archive
+  else
+    [[ "${IPA}" != 1 && -z "${UDID}" ]] && grep -q "has no devices" "${ROOT}/ios/build/archive.log" && \
+      echo "free team: wire the phone, unlock it and run again with UDID=<its UDID> so Xcode can register it"
+    exit 1
+  fi
+fi
 
 APP="${ROOT}/ios/build/Sidecar.xcarchive/Products/Applications/Sidecar.app"
 if [[ ! -d "${APP}" ]]; then

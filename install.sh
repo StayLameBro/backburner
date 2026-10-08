@@ -152,7 +152,13 @@ DIR="$DIR"
 export PATH="\$DIR/.venv/bin:\$PATH" PY="\$DIR/.venv/bin/python3"
 MEM_MB=\$(( \$(sysctl -n hw.memsize) / 1048576 ))
 WANT=\$(( MEM_MB - 4096 ))
-if [ "\$MEM_MB" -le 32768 ] && [ "\$(sysctl -n iogpu.wired_limit_mb)" -lt "\$WANT" ]; then
+# 0 means the macOS default (about 2/3 of RAM up to 36 GB, 3/4 above): compare against that, so this only ever raises the
+# limit (on an 8 GB Mac, MEM - 4096 is below the default and used to lower it: GitHub #1)
+CUR=\$(sysctl -n iogpu.wired_limit_mb)
+if [ "\$CUR" -eq 0 ]; then
+  if [ "\$MEM_MB" -le 36864 ]; then CUR=\$(( MEM_MB * 2 / 3 )); else CUR=\$(( MEM_MB * 3 / 4 )); fi
+fi
+if [ "\$MEM_MB" -le 32768 ] && [ "\$CUR" -lt "\$WANT" ]; then
   echo "backburner: letting the GPU keep the model in memory (macOS resets this at every reboot; asks for your password)"
   sudo sysctl iogpu.wired_limit_mb=\$WANT >/dev/null
 fi

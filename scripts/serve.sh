@@ -106,7 +106,18 @@ if [ "${PHONE:-auto}" != 0 ] && [ -z "${LLAMA_SPLIT_TAIL:-}${PHONE_KV:-}" ]; the
     [ "$PTAIL" = 1 ] && export LLAMA_SPLIT_TAIL=$PIP:50060
     # Phone-attn's shared Metal KV counts toward both the app footprint limit and system wired memory.
     # q8_0 costs 34,816 bytes/remote token, q4_0 18,432, f16 65,536.
-    PHONE_WIRED_MAX_MB=${PHONE_WIRED_MAX_MB:-9400}
+    # The 9400 MiB wired cap was measured on 12 GB phones (A19 Pro). A device that reports its RAM gets the same share of it
+    # (76.5%), and an app budget above 74% of RAM is not trusted: an 8 GB iPad reported 8,142 MiB (GitHub #23).
+    PHYS_MB=$(printf 'mem\n' | /usr/bin/nc -G 2 "$PIP" 50061 2>/dev/null | python3 -c "import json,sys; print(int(json.loads(sys.stdin.read()).get('phys_mb', 0)))" 2>/dev/null)
+    PHYS_MB=${PHYS_MB:-0}
+    if [ -z "${PHONE_WIRED_MAX_MB:-}" ]; then
+      PHONE_WIRED_MAX_MB=9400
+      [ "$PHYS_MB" -gt 0 ] && [ $(( PHYS_MB * 765 / 1000 )) -lt 9400 ] && PHONE_WIRED_MAX_MB=$(( PHYS_MB * 765 / 1000 ))
+    fi
+    if [ "$PHYS_MB" -gt 0 ] && [ "${PAVAIL:-0}" -gt $(( PHYS_MB * 74 / 100 )) ]; then
+      echo "serve: $PNAME reports a ${PAVAIL} MiB app budget on ${PHYS_MB} MiB of RAM: using $(( PHYS_MB * 74 / 100 )) MiB" >&2
+      PAVAIL=$(( PHYS_MB * 74 / 100 ))
+    fi
     PHONE_APP_RESERVE_MB=${PHONE_APP_RESERVE_MB:-512}
     if [ "${PWIRED:-0}" -le 0 ] || [ "${PWIRED:-0}" -ge "$PHONE_WIRED_MAX_MB" ] || [ "${PAVAIL:-0}" -le "$PHONE_APP_RESERVE_MB" ]; then
       echo "serve: phone wired/app memory is unknown or too low; remote KV disabled" >&2
@@ -124,7 +135,7 @@ if [ "${PHONE:-auto}" != 0 ] && [ -z "${LLAMA_SPLIT_TAIL:-}${PHONE_KV:-}" ]; the
       while read -r ip2 _ _ a2 w2 _; do
         [ -n "$ip2" ] || continue
         if [ "${w2:-0}" -le 0 ] || [ "${w2:-0}" -ge "$PHONE_WIRED_MAX_MB" ] || [ "${a2:-0}" -le "$PHONE_APP_RESERVE_MB" ]; then
-          echo "serve: the iPhone at $ip2 has too little memory free: not used" >&2; continue
+          echo "serve: the device at $ip2 has too little memory free: not used" >&2; continue
         fi
         s_w=$(( (PHONE_WIRED_MAX_MB - w2) * 1048576 / REMOTE_BPT / 4096 * 4096 ))
         s_a=$(( (a2 - PHONE_APP_RESERVE_MB) * 1048576 / REMOTE_BPT / 4096 * 4096 ))
@@ -140,7 +151,7 @@ if [ "${PHONE:-auto}" != 0 ] && [ -z "${LLAMA_SPLIT_TAIL:-}${PHONE_KV:-}" ]; the
       fi
       CTX_TOTAL=${CTX_TOTAL:-$PHONE_CAP}
     fi
-    [ "${NPH:-1}" -gt 1 ] && echo "serve: $NPH iPhones share the old keys" >&2
+    [ "${NPH:-1}" -gt 1 ] && echo "serve: $NPH devices share the old keys" >&2
     echo "serve: $PNAME at $PIP: split prefill $([ "$PTAIL" = 1 ] && echo on || echo off); context up to ${CTX_TOTAL:-${CTX:-65536}} tokens (remote KV $([ -n "${PHONE_KV:-}" ] && echo on || echo off), ANE pages $PANE, v$PVER)" >&2
   else
     echo "serve: no phone: Mac only, 64k context" >&2
@@ -165,7 +176,14 @@ PORT=${PORT:-8080}
 # top-5 probability changes of the same size as a GPU split-count change. CAUTION: keeps ~8 P-cores busy while generating (server
 # ~790% CPU) and the GPU waits on the CPU's share: heavy CPU load beside it (big builds) can stall rounds; on 2026-09-23 (older code)
 # that once hit a Metal GPU timeout. SME=0 turns it off. SME_MIN_KV: engaged only from this many keys (below 40k untested since the fixes).
-SME=${SME:-0.35}
+# Both SME defaults were tuned on an M4 Pro (10 P-cores, SME2). A Mac without SME2 (M1-M3) gets them off, and so does one
+# with fewer than 8 P-cores (M4 / A18 Pro MacBook Neo: co-attention would take the cores the server needs; GitHub #1).
+HAS_SME2=$(sysctl -n hw.optional.arm.FEAT_SME2 2>/dev/null || echo 0)
+P_CORES=$(sysctl -n hw.perflevel0.physicalcpu 2>/dev/null || echo 0)
+SME_DEFAULT=0.35; MM_SME_DEFAULT=0.30
+[ "$HAS_SME2" = 1 ] || { SME_DEFAULT=0; MM_SME_DEFAULT=0; }
+[ "$P_CORES" -ge 8 ] || SME_DEFAULT=0
+SME=${SME:-$SME_DEFAULT}
 SME_MIN_KV=${SME_MIN_KV:-40960}
 # 128k (CTX > 65536), measured 2026-09-23: q8_0 KV is ~0.3 GB over the 20.5 GB Metal cap with the drafter on the Mac, q4_0 fits
 # (~18.8 GB) once the model is loaded without mmap (a mapped file puts all 15.6 GB in the GPU working set) and the 644 MiB token
@@ -227,7 +245,7 @@ export LLAMA_SPEC_Q_CONF=${LLAMA_SPEC_Q_CONF:-1}
 # (full-model KL 2-6e-4 vs off, the size of q8_0-vs-f16 KV). MM_SME=0 turns it off.
 # MM_SME_ROWS=1 (default): split each matmul by rows (the CPU dequantizes only its own rows) instead of by tokens (the CPU
 # dequantizes the whole matrix per matmul): Mac-only pp2048 ub256 121.6 (off) -> 148.2 (tokens) -> 157.1 (rows), 2026-09-27.
-MM_SME=${MM_SME:-0.30}
+MM_SME=${MM_SME:-$MM_SME_DEFAULT}
 MM_SME_ROWS=${MM_SME_ROWS:-1}
 [ "$MM_SME" != 0 ] && export GGML_METAL_MM_SME=$MM_SME GGML_METAL_MM_SME_ROWS=$MM_SME_ROWS
 

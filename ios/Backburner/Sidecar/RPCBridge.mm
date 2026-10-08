@@ -528,6 +528,10 @@ static NSMutableDictionary *ane_mem() {
     // thermal: 0 nominal, 1 fair, 2 serious, 3 critical (NSProcessInfoThermalState); label every timing with it
     NSMutableDictionary *r = [@{ @"footprint_mb" : @(ane_footprint() / 1048576.0), @"avail_mb" : @(os_proc_available_memory() / 1048576.0),
                @"thermal" : @((int) [NSProcessInfo processInfo].thermalState) } mutableCopy];
+    // what the Mac needs to size this device: its RAM (an 8 GB iPad can report an app budget above its RAM) and its model
+    // identifier (iPhone18,2 / iPad16,3: scripts name the device and pick its profile from it)
+    r[@"phys_mb"] = @([NSProcessInfo processInfo].physicalMemory / 1048576.0);
+    r[@"machine"] = [RPCBridge deviceModel];
     // system-wide pages: the ANE's weights and Metal's resident buffers are wired but not in the app footprint, and
     // jetsam kills on system page shortage (~10.5 GB wired on the 12 GB A19)
     vm_statistics64_data_t vs; mach_msg_type_number_t n = HOST_VM_INFO64_COUNT;
