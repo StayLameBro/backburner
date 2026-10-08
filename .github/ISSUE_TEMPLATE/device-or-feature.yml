@@ -1,0 +1,28 @@
+name: Ask for a device or a feature
+description: A device you want supported (another phone, iPad, Mac, PC, Android) or something Backburner should do
+labels: ["request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        docs/ROADMAP.md lists what is planned and what people have already asked for: a thumbs-up on an existing issue counts too.
+  - type: textarea
+    id: ask
+    attributes:
+      label: What you'd like
+      placeholder: My Galaxy S26 Ultra as a worker next to my M4 MacBook Air
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What you'd use it for
+      description: Your workload (agent coding, long documents, chat) and the context length you need
+  - type: dropdown
+    id: test
+    attributes:
+      label: Could you test it?
+      options:
+        - Yes, I have the hardware and can run benchmarks
+        - Yes, with step-by-step instructions
+        - No

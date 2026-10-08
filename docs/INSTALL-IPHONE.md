@@ -11,17 +11,20 @@ Two ways. Both give the same app; the Mac scripts find it on the phone either wa
 You need an iPhone 15 Pro or newer, or an iPad with an M-series chip (M1 or newer). The A19 Pro (iPhone 17 Pro / Pro Max)
 has the GPU matrix units that make the phone's half of prefill 2.4x faster; the A18 Pro works but helps less.
 
-**iPads** install the same app (v0.0.2 and newer) and every step below is the same. iPads are **not tested yet**: we
-don't know how much memory iPadOS gives the app (step 5 prints it), or how fast an M-series iPad runs its layers. If you
-try one, please [post your results](https://github.com/StayLameBro/backburner/issues/new?template=results.yml), including
-the `app budget` line. The app runs full screen on iPad (no Split View), because it has to stay in front while the Mac uses it.
+**iPads** install the same app (v0.0.2 and newer) and every step below is the same. Users have run an M5 iPad Pro 16 GB
+(app budget ~16,260 MiB, #1) and an M1 iPad Pro 8 GB (#23). An 8 GB iPad reports an app budget above its RAM, so
+`serve.sh` caps it at 74% of RAM (0.0.5). The app runs full screen on iPad (no Split View), because it has to stay in
+front while the Mac uses it.
+
+**Local Network permission.** The first time the Mac sends the phone a file (`scripts/phone-tail.sh`), iOS asks whether
+Backburner may use the local network. Until you allow it, the push fails with "The Internet connection appears to be
+offline". Allow it, then run the command again (#23).
 
 ## With AltStore (no developer account)
 
-> **Not yet tested by us.** We've verified the IPA carries the memory entitlement, and that a free Apple account gets the
-> full ~6 GB through Xcode; AltStore says version 2.2+ keeps that entitlement when it signs. If you install this way, please
-> [post your results](https://github.com/StayLameBro/backburner/issues/new?template=results.yml) with the `app budget` line
-> from step 5, so we can confirm it.
+> **Confirmed by users:** AltStore keeps the memory entitlement when it signs the IPA (6,073 MiB app budget on an iPhone
+> Air, #1; ~16,260 MiB on an M5 iPad Pro). The Mac scripts still call `xcrun devicectl`, so the Mac needs Xcode installed
+> (not a developer account).
 
 1. **AltServer on the Mac.** Download it from [altstore.io](https://altstore.io) and open it. It has no window, only a
    diamond-shaped icon in the menu bar. No icon? On a MacBook with a notch, a full menu bar hides icons behind it: quit a
@@ -73,12 +76,19 @@ Triple-click again (and enter the passcode) to leave.
 
 ## With Xcode (developer team id)
 
+What a stock Mac needs first (the script checks and says so):
+- **cmake**: `brew install cmake`
+- **the Metal Toolchain** (~840 MB, once): `xcodebuild -downloadComponent MetalToolchain`
+
 ```bash
-export DEVELOPMENT_TEAM=<your team id>       # Xcode > Settings > Accounts
+export DEVELOPMENT_TEAM=<your team id>       # Xcode > Settings > Accounts (a free personal team works)
 UDID=<your iPhone's UDID> scripts/build-iphone.sh
 ```
 
 It builds llama.cpp for iOS, the SME2 attention kernel and the app, signs it as `app.backburner.<team id>` and installs it.
+A free team gets a provisioning profile only for devices Xcode has registered: with `UDID` set and the phone wired and
+unlocked, the script registers it on the first run (#23). `JOBS=4` keeps the build from taking every core. iOS 26 and
+iPadOS 26 work too (#23).
 
 ## Making the IPA (maintainers)
 

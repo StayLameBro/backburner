@@ -47,10 +47,17 @@ body:
       placeholder: Qwen3.8-27B IQ4_XS (default)
 
   - type: textarea
+    id: profile
+    attributes:
+      label: Device profile (optional)
+      description: Output of `bench/device-probe.py` with the phone(s) plugged in and Backburner open. It holds no names, ids or addresses.
+      render: json
+
+  - type: textarea
     id: startup
     attributes:
       label: serve.sh startup line and phone-up.sh output
-      description: The `serve: ... split prefill on ... ANE pages ...` line, and the `... MiB app budget` line from scripts/phone-up.sh
+      description: "The `serve: ... split prefill on ... ANE pages ...` line, and the `... MiB app budget` line from scripts/phone-up.sh"
       render: shell
 
   - type: textarea

@@ -14,8 +14,12 @@ The engine is a llama.cpp fork (`llama.cpp/`, [StayLameBro/backburner-llama.cpp]
 with its own Mac kernels (SME2, Metal fusions, DFlash2 speculative decoding). Those speed things up on the Mac alone too; the
 numbers below keep the two apart.
 
-Tested on a MacBook Pro M4 Pro (24 GB) with iPhone 17 Pro Max (A19 Pro) and iPhone 16 Pro Max (A18 Pro) phones. The app also
-installs on iPads with an M-series chip since v0.0.2; that is untested so far, so please post your results.
+Tested on a MacBook Pro M4 Pro (24 GB) with iPhone 17 Pro Max (A19 Pro) and iPhone 16 Pro Max (A18 Pro) phones. Others
+have run it on 8 and 18 GB Macs, an M5 and an M1 iPad Pro and an iPhone 18 Pro Max: see "Will it work on my …?" below.
+
+**Where this is going:** one inference machine out of every device you own: Macs, iPhones, iPads, then Linux and Windows
+PCs and Android phones. It aims to run models bigger than any one of them can hold, at full quant quality.
+[docs/ROADMAP.md](docs/ROADMAP.md) has the plan and what people have asked for.
 
 ![Seconds of waiting for each file your agent reads](docs/img/wait-per-file.png)
 
@@ -72,6 +76,27 @@ measured on the same day, so there is no head-to-head number for it here.
 |---|---|
 | Mac alone (24 GB) | 64k measured (128k only fits with 4-bit) |
 | Mac + iPhone 17 Pro Max | 196k-229k by the phone's free memory (sized at startup); tested to 128k (140k at 4-bit) |
+
+## Will it work on my …?
+
+"Tested" is the maintainer's own hardware. "Reported" links the issue where someone posted it; those numbers are theirs.
+
+| Setup | Status | Notes |
+|---|---|---|
+| M4 Pro Mac (24 GB) + iPhone 17 Pro Max (A19 Pro) | Tested | The numbers above |
+| + iPhone 16 Pro Max (A18 Pro) | Tested | Gets hot over long prefills; vapor-chamber phones (17 Pro, 18 Pro) stay cooler |
+| + two iPhones | Tested | Old context shared by both; prefill chain in progress ([docs/TWO-PHONES.md](docs/TWO-PHONES.md)) |
+| M4 Pro Mac + iPhone 18 Pro Max (A20 Pro) | Reported ([#14](https://github.com/StayLameBro/backburner/issues/14)) | Prefill to 61k faster than the Mac alone; 128k runs still being debugged there |
+| 8 GB MacBook Neo + iPhone Air | Reported ([#1](https://github.com/StayLameBro/backburner/issues/1)) | IQ2_XS with split decode, ~4 tok/s; the Air's USB 2 port costs ~28 ms per token |
+| 8 GB MacBook Neo + M5 iPad Pro | Reported ([#1](https://github.com/StayLameBro/backburner/issues/1)) | IQ2_XS, 8 tok/s decode, ~155 tok/s prefill at 2k |
+| 18 GB M3 Pro Mac + iPhone 17 Pro Max or M1 iPad Pro (8 GB) | Reported ([#23](https://github.com/StayLameBro/backburner/issues/23)) | IQ2_XS; repeated 2k reads wait ~20% less with the iPhone (L=40), the first read after a restore is slower; the M1 iPad helps only with few layers (L=52) |
+| iPhone 15 Pro / 16 Pro (A17 Pro, A18 Pro) | Should work | Untested here; post your results |
+| Older or non-Pro iPhones | Not yet | USB 2 port (too slow for split prefill); planned for roles that need little bandwidth |
+| Another Mac, Linux or Windows PC as a worker | Not yet | [docs/LINUX.md](docs/LINUX.md) |
+| Android phones | Not yet | [docs/ANDROID.md](docs/ANDROID.md) |
+
+`bench/device-probe.py` prints your setup as a profile with no personal data; attach it when you
+[post your results](https://github.com/StayLameBro/backburner/issues/new?template=results.yml).
 
 ## How it works
 
@@ -194,8 +219,28 @@ that the startup line should read `split prefill on`, `remote KV on` and `ANE pa
 
 `scripts/serve.sh` documents each setting next to the measurement that chose it.
 
-**8 GB Mac?** Split decode runs the 27B with the Mac on the first 20 layers and the phone on the rest, ~4 tok/s on a
-MacBook Neo + iPhone Air: [docs/SPLIT-DECODE.md](docs/SPLIT-DECODE.md).
+### Smaller Macs
+
+- **8 GB:** split decode runs the 27B with the Mac on the first layers and the phone or iPad on the rest: ~4 tok/s with an
+  iPhone Air, ~8 with an M5 iPad Pro (IQ2_XS, #1): [docs/SPLIT-DECODE.md](docs/SPLIT-DECODE.md).
+- **16-18 GB:** the default IQ4_XS doesn't fit. A user ran IQ2_XS with `LOAD_MODE=mmap`, a 64k context and the GPU limit
+  raised to 14 GB (`sudo sysctl iogpu.wired_limit_mb=14336`; #23). `install.sh` needs `FORCE=1` below 24 GB.
+- **M1-M3 (no SME2):** `serve.sh` turns the SME settings off by itself; the rest works the same.
+
+## FAQ
+
+- **Isn't 10 Gb/s USB too slow?** Per generated token only a few KB to ~1 MB crosses the cable; what matters is the round
+  trip (96 µs measured through the app). A 256-token prefill chunk is ~2.6 MB, ~2 ms at 10 Gb/s against seconds of
+  compute. Only USB 2 ports (iPhone Air, non-Pro iPhones) are a real bottleneck.
+- **Will it cook my phone?** It gets warm. Our 17 Pro Max stayed at thermal state nominal through the 128k run above; a
+  user's 18 Pro Max reached state 2 ("serious") in a 61k comparison (#14); the 16 Pro Max reaches it within about a minute
+  of continuous prefill. Every benchmark records the phone's thermal state.
+- **Do I need a jailbreak?** No. AltStore sideloads the app with a free Apple ID ([docs/INSTALL-IPHONE.md](docs/INSTALL-IPHONE.md)).
+- **What does it do that llama.cpp `-rpc` doesn't?** Each device owns its layers and memory, and only hidden state crosses
+  the link. Phones take part with their GPUs and Neural Engines, and every change is checked for identical output:
+  [docs/ROADMAP.md](docs/ROADMAP.md).
+- **Does it work with the phone locked?** No. iOS stops GPU work in the background. Guided Access keeps the app in front
+  ([docs/INSTALL-IPHONE.md](docs/INSTALL-IPHONE.md#keeping-it-in-front)).
 
 ## Reproducing the numbers
 
@@ -220,8 +265,8 @@ change needs: same answers, measured speed, and the Mac alone still working.
 
 ## Status
 
-Pre-release. Next: the phone's layers seeing the keys it holds (split prefill past 64k), a second phone in the prefill chain,
-an App Store build, and upstreaming what makes sense to llama.cpp.
+Pre-release. Next: a second phone in the prefill chain, the phone's layers seeing the keys it holds (split prefill past
+64k), workers on other Macs, Linux and Android, and upstreaming what makes sense to llama.cpp: [docs/ROADMAP.md](docs/ROADMAP.md).
 Built with a lot of help from Claude Opus 5.5.
 
 MIT license (llama.cpp keeps its own MIT license). Created by [StayLameBro](https://github.com/StayLameBro). Forks are

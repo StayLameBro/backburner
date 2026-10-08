@@ -1,0 +1,36 @@
+name: Something broke
+description: A crash, a hang, a wrong answer, a script that fails
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! A security problem goes to private reporting instead (Security → Report a vulnerability), not here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to make it happen again
+      description: The commands you ran and the settings (the serve.sh startup line helps)
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log lines around it
+      description: The server log and, for the phone, `printf 'mem\n' | nc -G 2 <phone-ip> 50061`
+      render: shell
+  - type: textarea
+    id: profile
+    attributes:
+      label: Device profile
+      description: Output of `bench/device-probe.py` (no names, ids or addresses), or your Mac, phone(s), iOS and app version
+      render: json
+    validations:
+      required: true
