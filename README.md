@@ -18,7 +18,8 @@ Tested on a MacBook Pro M4 Pro (24 GB) with iPhone 17 Pro Max (A19 Pro) and iPho
 have run it on 8 and 18 GB Macs, an M5 and an M1 iPad Pro and an iPhone 18 Pro Max: see "Will it work on my …?" below.
 
 **Where this is going:** one inference machine out of every device you own: Macs, iPhones, iPads, then Linux and Windows
-PCs and Android phones. It aims to run models bigger than any one of them can hold, at full quant quality.
+PCs and Android phones. The goal is to run models too big for any one of them, with the same answers a single machine big
+enough to hold the model would give.
 [docs/ROADMAP.md](docs/ROADMAP.md) has the plan and what people have asked for.
 
 ![Seconds of waiting for each file your agent reads](docs/img/wait-per-file.png)
@@ -94,6 +95,7 @@ measured on the same day, so there is no head-to-head number for it here.
 | Older or non-Pro iPhones | Not yet | USB 2 port (too slow for split prefill); planned for roles that need little bandwidth |
 | Another Mac, Linux or Windows PC as a worker | Not yet | [docs/LINUX.md](docs/LINUX.md) |
 | Android phones | Not yet | [docs/ANDROID.md](docs/ANDROID.md) |
+| Apple TV | Not yet | No USB data port: joins over Ethernet once the network link is authenticated ([docs/ROADMAP.md](docs/ROADMAP.md)) |
 
 `bench/device-probe.py` prints your setup as a profile with no personal data; attach it when you
 [post your results](https://github.com/StayLameBro/backburner/issues/new?template=results.yml).

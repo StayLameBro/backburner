@@ -1,10 +1,11 @@
 # Roadmap
 
-**Backburner turns the devices you already own into one inference machine.** It runs models bigger than any one of them can
-hold, at full quant quality, faster than any single device or a stock llama.cpp `-rpc` setup.
+**Backburner turns the devices you already own into one inference machine.** The goal is to run models too big for any
+one of them, faster than any one of them could alone, with the same answers you'd get from a single machine big enough to
+hold the whole model.
 
-Today that means a Mac plus iPhones and iPads over USB-C. The aim is every device in a home: spare Macs, iPads, Linux
-and Windows PCs, Android phones.
+Today that means a Mac plus iPhones and iPads over USB-C, with Windows PCs in development. The aim is every device in a
+home: spare Macs, iPads, Linux and Windows PCs, Android phones, an Apple TV.
 
 ## Why not just llama.cpp `-rpc`?
 
@@ -29,7 +30,14 @@ for each release. Until then this section describes the design, not a result.
   GPU memory limit, SME defaults that follow the chip, a phone with no tail model reported as down, free-team Xcode builds.
 - `bench/device-probe.py`: a device profile (no personal data) for results issues.
 
-## Next: the 27B on two phones
+## In development: Qwen3.8-Flash-Next across a house
+
+Qwen3.8-Flash-Next is a ~180B-parameter mixture-of-experts model: no Mac, PC or phone here can hold it alone. It runs end to
+end in development builds across a Mac, two Windows PCs and two iPhones. Each device owns whole layers with their experts,
+keeps the hot experts in memory and reads the rest from its own SSD. The code and measured numbers come to this repository
+with its release.
+
+## In development: the 27B on two phones
 
 Mac → iPhone A → iPhone B prefill chain (docs/TWO-PHONES.md), measured on two A19 Pros: speed at 16k-128k, same-answers
 gate, thermal behaviour over long runs, and what each device was doing. Then the decode levers.
@@ -47,14 +55,10 @@ gate, thermal behaviour over long runs, and what each device was doing. Then the
    (bandwidth, compute, memory, link round trip), then choose who runs which layers and which part of the context.
 4. **Devices, in the order people asked for them:** M4/M5 iPad Pro (works today, needs profiles), extra Macs (MacBook Air,
    mini), Linux PCs with CUDA or Vulkan, older and USB 2 phones (jobs that need little bandwidth, such as holding old
-   context or drafting), Android.
+   context or drafting), Android, Apple TV (tvOS runs the same Metal code; with no USB data port it joins over Ethernet,
+   once the authenticated link exists).
 5. **Community profiles.** `bench/device-probe.py` output attached to results issues, used by the planner and by the README
    table "Will it work on my …?".
-
-## Later: big MoE models across a house
-
-Qwen3.8-Flash-Next (a large MoE) across a Mac, PCs and phones: each device owns whole layers with all their experts, caches
-the hot ones in memory, and reads the rest from its own SSD. In progress, not in this repository yet.
 
 ## Upstream
 
