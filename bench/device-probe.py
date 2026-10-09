@@ -4,7 +4,8 @@
     bench/device-probe.py            # JSON on stdout: paste it into a "[Results]" issue
     bench/device-probe.py --no-phone # the Mac only
 
-Reads only: no model, no GPU work, a few short requests to each device. The profile holds hardware facts (chip, RAM, cores,
+No model, no GPU work, a few short requests to each device (if Backburner isn't answering, scripts/phone-up.sh relaunches
+it, as serve.sh does). The profile holds hardware facts (chip, RAM, cores,
 SME2, OS version, the app's memory budget, link round trip) and nothing that identifies you or a device: no UDID, serial,
 device name, IP address, user name or path. The planner (docs/ROADMAP.md, "any device") will learn from these profiles.
 """
@@ -67,7 +68,7 @@ def mac_profile():
 
 
 def phone_ips():
-    """Addresses of the devices on the cable with Backburner open (scripts/phone-up.sh finds them; nothing is relaunched)."""
+    """Addresses of the devices on the cable with Backburner open (scripts/phone-up.sh finds them)."""
     out = subprocess.run([str(ROOT / "scripts/phone-up.sh")], capture_output=True, text=True, timeout=120,
                          env={**os.environ, "PHONES_ALL": "1", "TAIL_WAIT": "1"}).stdout
     return [line.split()[0] for line in out.splitlines() if line.strip()]
