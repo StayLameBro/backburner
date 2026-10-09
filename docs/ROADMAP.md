@@ -5,7 +5,7 @@ one of them, faster than any one of them could alone, with the same answers you'
 hold the whole model.
 
 Today that means a Mac plus iPhones and iPads over USB-C, with Windows PCs in development. The aim is every device in a
-home: spare Macs, iPads, Linux and Windows PCs, Android phones, an Apple TV.
+home: spare Macs, iPads, Linux and Windows PCs, Android phones.
 
 ## Why not just llama.cpp `-rpc`?
 
@@ -55,8 +55,9 @@ gate, thermal behaviour over long runs, and what each device was doing. Then the
    (bandwidth, compute, memory, link round trip), then choose who runs which layers and which part of the context.
 4. **Devices, in the order people asked for them:** M4/M5 iPad Pro (works today, needs profiles), extra Macs (MacBook Air,
    mini), Linux PCs with CUDA or Vulkan, older and USB 2 phones (jobs that need little bandwidth, such as holding old
-   context or drafting), Android, Apple TV (tvOS runs the same Metal code; with no USB data port it joins over Ethernet,
-   once the authenticated link exists).
+   context or drafting), Android.
+   (An idea, not planned work: an Apple TV as a worker. tvOS runs the same Metal code, and it would join over the network,
+   so it too needs the authenticated link from step 2.)
 5. **Community profiles.** `bench/device-probe.py` output attached to results issues, used by the planner and by the README
    table "Will it work on my …?".
 

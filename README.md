@@ -95,7 +95,6 @@ measured on the same day, so there is no head-to-head number for it here.
 | Older or non-Pro iPhones | Not yet | USB 2 port (too slow for split prefill); planned for roles that need little bandwidth |
 | Another Mac, Linux or Windows PC as a worker | Not yet | [docs/LINUX.md](docs/LINUX.md) |
 | Android phones | Not yet | [docs/ANDROID.md](docs/ANDROID.md) |
-| Apple TV | Not yet | No USB data port: joins over Ethernet once the network link is authenticated ([docs/ROADMAP.md](docs/ROADMAP.md)) |
 
 `bench/device-probe.py` prints your setup as a profile with no personal data; attach it when you
 [post your results](https://github.com/StayLameBro/backburner/issues/new?template=results.yml).
