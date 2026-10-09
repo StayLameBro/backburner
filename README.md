@@ -231,7 +231,7 @@ that the startup line should read `split prefill on`, `remote KV on` and `ANE pa
 ## FAQ
 
 - **Isn't 10 Gb/s USB too slow?** Per generated token only a few KB to ~1 MB crosses the cable; what matters is the round
-  trip (96 µs measured through the app). A 256-token prefill chunk is ~2.6 MB, ~2 ms at 10 Gb/s against seconds of
+  trip, about 1 ms through the app over the cable. A 256-token prefill chunk is ~2.6 MB, ~2 ms at 10 Gb/s against seconds of
   compute. Only USB 2 ports (iPhone Air, non-Pro iPhones) are a real bottleneck.
 - **Will it cook my phone?** It gets warm. Our 17 Pro Max stayed at thermal state nominal through the 128k run above; a
   user's 18 Pro Max reached state 2 ("serious") in a 61k comparison (#14); the 16 Pro Max reaches it within about a minute
@@ -266,8 +266,9 @@ change needs: same answers, measured speed, and the Mac alone still working.
 
 ## Status
 
-Pre-release. Next: a second phone in the prefill chain, the phone's layers seeing the keys it holds (split prefill past
-64k), workers on other Macs, Linux and Android, and upstreaming what makes sense to llama.cpp: [docs/ROADMAP.md](docs/ROADMAP.md).
+Pre-release. In development: Qwen3.8-Flash-Next across a Mac, PCs and phones, and the 27B with two phones in the prefill
+chain. Then: the phone's layers seeing the keys it holds (split prefill past 64k), workers on other Macs, Linux and
+Android, and upstreaming what makes sense to llama.cpp: [docs/ROADMAP.md](docs/ROADMAP.md).
 Built with a lot of help from Claude Opus 5.5.
 
 MIT license (llama.cpp keeps its own MIT license). Created by [StayLameBro](https://github.com/StayLameBro). Forks are
