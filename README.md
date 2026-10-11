@@ -88,13 +88,28 @@ measured on the same day, so there is no head-to-head number for it here.
 | + iPhone 16 Pro Max (A18 Pro) | Tested | Gets hot over long prefills; vapor-chamber phones (17 Pro, 18 Pro) stay cooler |
 | + two iPhones | Tested | Old context shared by both; prefill chain in progress ([docs/TWO-PHONES.md](docs/TWO-PHONES.md)) |
 | M4 Pro Mac + iPhone 18 Pro Max (A20 Pro) | Reported ([#14](https://github.com/StayLameBro/backburner/issues/14)) | Prefill to 61k faster than the Mac alone; 128k runs still being debugged there |
-| 8 GB MacBook Neo + iPhone Air | Reported ([#1](https://github.com/StayLameBro/backburner/issues/1)) | IQ2_XS with split decode, ~4 tok/s; the Air's USB 2 port costs ~28 ms per token |
+| 8 GB MacBook Neo + iPhone Air | Reported ([#1](https://github.com/StayLameBro/backburner/issues/1)) | IQ2_XS with split decode: ~4 tok/s on short replies, ~2.6 on 512-token replies, lower once the Air is at thermal 2; its USB 2 port costs ~28 ms per token |
 | 8 GB MacBook Neo + M5 iPad Pro | Reported ([#1](https://github.com/StayLameBro/backburner/issues/1)) | IQ2_XS, 8 tok/s decode, ~155 tok/s prefill at 2k |
 | 18 GB M3 Pro Mac + iPhone 17 Pro Max or M1 iPad Pro (8 GB) | Reported ([#23](https://github.com/StayLameBro/backburner/issues/23)) | IQ2_XS; repeated 2k reads wait ~20% less with the iPhone (L=40), the first read after a restore is slower; the M1 iPad helps only with few layers (L=52) |
-| iPhone 15 Pro / 16 Pro (A17 Pro, A18 Pro) | Should work | Untested here; post your results |
+| M1 Max Mac (64 GB) + iPhone 15 Pro (A17 Pro) or M1 iPad Pro (8 GB) | Reported ([#30](https://github.com/StayLameBro/backburner/issues/30)) | IQ4_XS with DFlash2 at L52: prefill +14% with the iPad, +8% with the iPhone, identical output; a few unexplained iPad failures under iPadOS 18 |
+| iPhone 16 Pro (A18 Pro) | Should work | Same chip as the tested 16 Pro Max; post your results |
 | Older or non-Pro iPhones | Not yet | USB 2 port (too slow for split prefill); planned for roles that need little bandwidth |
 | Another Mac, Linux or Windows PC as a worker | Not yet | [docs/LINUX.md](docs/LINUX.md) |
 | Android phones | Not yet | [docs/ANDROID.md](docs/ANDROID.md) |
+
+**Which split for my device?** L is the number of layers the Mac keeps; the phone or iPad runs the rest. These are the
+splits people have measured; they're starting points, not tuned optimums:
+
+| Device | L | From |
+|---|---|---|
+| iPhone 17 Pro / Pro Max (A19 Pro) | 40 | the numbers above |
+| iPhone 18 Pro Max (A20 Pro) | 32 or 40 | [#14](https://github.com/StayLameBro/backburner/issues/14) |
+| iPhone 16 Pro / Pro Max (A18 Pro), iPhone 15 Pro (A17 Pro) | 52 | the installer's default for the A18 Pro, [#30](https://github.com/StayLameBro/backburner/issues/30) |
+| M1 iPad Pro (8 GB) | 52 | [#23](https://github.com/StayLameBro/backburner/issues/23), [#30](https://github.com/StayLameBro/backburner/issues/30) (L48 and L44 were slower) |
+| 8 GB Mac with split decode | 20 with an iPhone Air, 4 with an M5 iPad Pro | [#1](https://github.com/StayLameBro/backburner/issues/1) |
+
+Set it with `TAIL_L=<L>` when you install (`install.sh`), or make the phone's half with
+`scripts/split-gguf.py -L <L> --no-head` and push it with `scripts/phone-tail.sh`.
 
 `bench/device-probe.py` prints your setup as a profile with no personal data; attach it when you
 [post your results](https://github.com/StayLameBro/backburner/issues/new?template=results.yml).
