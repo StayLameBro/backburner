@@ -65,6 +65,11 @@ struct ContentView: View {
 
     // dim mode: black screen, low brightness, a few dim lines that move a little (OLED burn-in, heat)
     @State private var dim = false
+    // nothing to show for a while (no cable, waiting, or ready with the Mac idle): the animations stop, as with Reduce Motion.
+    // A screen redrawn every frame while the app just waits warms thin phones (GitHub #1).
+    @State private var still = false
+    @State private var restSince: Date? = nil
+    private let stillAfter: TimeInterval = 8
     @State private var lastTouch = Date()
     @State private var savedBrightness: CGFloat = -1
     @State private var drift = CGSize.zero
@@ -111,6 +116,15 @@ struct ContentView: View {
         }
         .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in
             refresh()
+            let resting = [Mode.noCable, .waiting, .ready].contains(mode) && !attnBusy && macFlow.rate == 0
+            if resting {
+                let since = restSince ?? Date()
+                restSince = since
+                if !still && Date().timeIntervalSince(since) > stillAfter { still = true }
+            } else {
+                restSince = nil
+                if still { still = false }
+            }
             if !dim && Date().timeIntervalSince(lastTouch) > dimAfter { setDim(true) }
             if dim && Int(Date().timeIntervalSince1970) % 60 == 0 {
                 withAnimation(.easeInOut(duration: 4)) {
@@ -299,7 +313,7 @@ struct ContentView: View {
 
                 ZStack(alignment: .topLeading) {
                     if holding && linked && mode != .starting {
-                        ConversationBar(frozen: dim, phoneTokens: heldKeys, macTokens: 65_536, busy: attnBusy,
+                        ConversationBar(frozen: dim || still, phoneTokens: heldKeys, macTokens: 65_536, busy: attnBusy,
                                         glow: glow, light: light, mid: mid, dark: dark)
                             .transition(.opacity)
                     } else {
@@ -313,7 +327,7 @@ struct ContentView: View {
                             .font(.system(size: 14))
                             .foregroundStyle(mid)
                             .frame(width: 52, alignment: .leading)
-                            LayerStack(frozen: dim, prefill: mode == .readingTogether, firstPhoneLayer: tailFirst, tokS: tailTokS,
+                            LayerStack(frozen: dim || still, prefill: mode == .readingTogether, firstPhoneLayer: tailFirst, tokS: tailTokS,
                                        appearAt: appearAt, loading: mode == .loading || mode == .activating,
                                        phoneEmpty: [.noCable, .waiting, .starting].contains(mode), progress: loadTarget,
                                        macFlow: macFlow.rate, macGain: macFlow.gain, glow: glow, mid: mid, dark: dark)
