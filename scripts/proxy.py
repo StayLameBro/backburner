@@ -309,7 +309,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 self.send_header(k, v)
         self.send_header('Transfer-Encoding', 'chunked')
         self.end_headers()
-        tail = b''
+        tail = bytearray()   # in-place extend: avoids the O(n^2) realloc that `bytes += chunk` does per chunk
         buf, phase, n, t_note, t_first = b'', 'reading', 0, 0.0, 0.0
         while True:
             chunk = r.read1(65536)
@@ -362,7 +362,7 @@ class H(http.server.BaseHTTPRequestHandler):
         self.wfile.write(b'0\r\n\r\n')
         self.wfile.flush()
         c.close()
-        return tail
+        return bytes(tail)
 
     def do_GET(self):
         self.relay(None)
