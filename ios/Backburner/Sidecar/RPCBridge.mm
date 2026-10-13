@@ -541,7 +541,52 @@ static NSMutableDictionary *ane_mem() {
         r[@"sys_free_mb"]  = @(vs.free_count * pg);
         r[@"sys_compressed_mb"] = @(vs.compressor_page_count * pg);
     }
+    r[@"wired_max_mb"] = @(pa::wired_max_mb());   // the ceiling phone-attn and the ANE pages keep to (phone-attn.h)
     return r;
+}
+
+// ---- memory log: what the phone's memory looked like when the app last stopped (GitHub #14) ----
+// Every 2 s the app writes its memory peaks and its last sample to Library/Caches/memory-log.json (atomically). iOS gives an
+// app no warning before it kills it, so the next launch reads the file the last run left: the control port's `mem` reports it
+// as previous_run (peaks, the last sample, and what the tail and the ANE pages were doing), and this run's peaks as this_run.
+static std::mutex g_memlog_mu;
+static NSDictionary *g_memlog_prev = nil;
+static NSMutableDictionary *g_memlog_now = nil;
+static void memlog_start(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSString *dir = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
+        NSString *path = [dir stringByAppendingPathComponent:@"memory-log.json"];
+        if (NSData *d = [NSData dataWithContentsOfFile:path]) {
+            id prev = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
+            if ([prev isKindOfClass:[NSDictionary class]]) { std::lock_guard<std::mutex> lk(g_memlog_mu); g_memlog_prev = prev; }
+        }
+        const double t0 = [NSDate date].timeIntervalSince1970;
+        std::thread([path, t0] {
+            pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
+            double max_wired = 0, min_free = 1e12, min_avail = 1e12, max_comp = 0, max_foot = 0;
+            for (;;) {
+                @autoreleasepool {
+                    NSMutableDictionary *m = ane_mem();
+                    const double w = [m[@"sys_wired_mb"] doubleValue], f = [m[@"sys_free_mb"] doubleValue], av = [m[@"avail_mb"] doubleValue],
+                                 c = [m[@"sys_compressed_mb"] doubleValue], fp = [m[@"footprint_mb"] doubleValue];
+                    max_wired = std::max(max_wired, w); min_free = std::min(min_free, f); min_avail = std::min(min_avail, av);
+                    max_comp = std::max(max_comp, c); max_foot = std::max(max_foot, fp);
+                    NSMutableDictionary *o = [@{ @"started" : @(t0), @"updated" : @([NSDate date].timeIntervalSince1970),
+                        @"peak" : @{ @"sys_wired_mb" : @(max_wired), @"sys_free_mb_lowest" : @(min_free), @"avail_mb_lowest" : @(min_avail),
+                                     @"sys_compressed_mb" : @(max_comp), @"footprint_mb" : @(max_foot) },
+                        @"last" : m } mutableCopy];
+                    { std::lock_guard<std::mutex> lk(g_tail_status.mu);
+                      o[@"tail"] = [NSString stringWithFormat:@"%s %s", g_tail_status.state.c_str(), g_tail_status.detail.c_str()]; }
+                    if (pa::ane_engine * a = g_pa_ane.load()) o[@"ane"] = [NSString stringWithUTF8String:a->describe().c_str()] ?: @"";
+                    { std::lock_guard<std::mutex> lk(g_pa_status.mu); o[@"pa_big"] = [NSString stringWithUTF8String:g_pa_status.last_big.c_str()] ?: @""; }
+                    if (NSData *d = [NSJSONSerialization dataWithJSONObject:o options:0 error:nil]) [d writeToFile:path atomically:YES];
+                    { std::lock_guard<std::mutex> lk(g_memlog_mu); g_memlog_now = o; }
+                }
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+            }
+        }).detach();
+    });
 }
 static MLComputeUnits ane_units(NSString *u) {
     if ([u isEqualToString:@"gpu"]) return MLComputeUnitsCPUAndGPU;
@@ -611,6 +656,14 @@ static NSDictionary *ane_cmd(NSArray<NSString *> *a) {
         return @{ @"op" : op, @"paired" : @YES, @"wifi_key" : [k base64EncodedStringWithOptions:0], @"wifi_port" : @50070,
                   @"wifi_ip" : [SidecarRPC wifiAddress] };
     }
+    // wired MB: the ceiling the Mac planned with (scripts/serve.sh's PHONE_WIRED_MAX_MB); 0: back to this device's default
+    if ([op isEqualToString:@"wired"] && a.count >= 2) {
+        const double v = a[1].doubleValue, phys = [NSProcessInfo processInfo].physicalMemory / 1048576.0;
+        if (!std::isfinite(v) || v < 0 || (v > 0 && (v < 1024 || v > phys))) { r[@"error"] = @"wired MB: 0, or between 1024 and this device's RAM"; return r; }
+        pa::wired_max_from_mac().store(v);
+        r[@"wired_max_mb"] = @(pa::wired_max_mb());
+        return r;
+    }
     if ([op isEqualToString:@"mac"] && a.count >= 2) {
         bool activate = false;
         {
@@ -646,6 +699,9 @@ static NSDictionary *ane_cmd(NSArray<NSString *> *a) {
         // phone-attn's ANE pages and prefill-call totals here too: this port answers while a llama-server holds phone-attn's
         // connection threads (a STATS on :50062 then waits)
         if (pa::ane_engine * a = g_pa_ane.load()) r[@"pa_ane"] = [NSString stringWithUTF8String:a->describe().c_str()] ?: @"";
+        { std::lock_guard<std::mutex> lk5(g_memlog_mu);
+          if (g_memlog_prev) r[@"previous_run"] = g_memlog_prev;
+          if (g_memlog_now) r[@"this_run"] = @{ @"started" : g_memlog_now[@"started"] ?: @0, @"peak" : g_memlog_now[@"peak"] ?: @{} }; }
         { std::lock_guard<std::mutex> lk2(g_pa_status.mu); r[@"pa_big"] = [NSString stringWithUTF8String:g_pa_status.last_big.c_str()] ?: @"";
           r[@"pa_dec"] = [NSString stringWithUTF8String:g_pa_status.last_dec.c_str()] ?: @"";
           r[@"pa_calls"] = @(g_pa_status.attn_calls); r[@"pa_held"] = @(g_pa_status.held_keys); }
@@ -984,6 +1040,7 @@ static void *ane_server_main(void *raw) {
 
 @implementation SidecarRPC (ANE)
 + (void)startPhoneAttnPort:(int)port {
+    memlog_start();
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         std::thread([port] {

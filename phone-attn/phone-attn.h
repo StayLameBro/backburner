@@ -58,6 +58,7 @@
 #endif
 #if defined(__APPLE__)
 #include <mach/mach.h>
+#include <sys/sysctl.h>
 #endif
 
 extern "C" {
@@ -193,10 +194,37 @@ inline double wired_mb() {
 #endif
     return 0;
 }
-// the wired ceiling everything on the phone stays under (PA_WIRED_MAX_MB, default 9400, as scripts/serve.sh)
+// this device's RAM in MiB (0 if unknown)
+inline double phys_mb() {
+#if defined(__APPLE__)
+    uint64_t m = 0; size_t l = sizeof m;
+    if (sysctlbyname("hw.memsize", &m, &l, nullptr, 0) == 0) return (double) m / 1048576.0;
+#endif
+    return 0;
+}
+// memory the system could still hand out right now (free + purgeable pages), MiB. A Neural Engine compile runs in another
+// process (ANECompilerService), so neither the app's own budget nor the wired count shows what it takes.
+inline double sys_free_mb() {
+#if defined(__APPLE__)
+    vm_statistics64_data_t vs; mach_msg_type_number_t n = HOST_VM_INFO64_COUNT;
+    if (host_statistics64(mach_host_self(), HOST_VM_INFO64, (host_info64_t) &vs, &n) == KERN_SUCCESS) {
+        return (double) (vs.free_count + vs.purgeable_count) * (double) vm_kernel_page_size / 1048576.0;
+    }
+#endif
+    return 0;
+}
+// what the Mac set with the control port's `wired MB` (scripts/serve.sh sends PHONE_WIRED_MAX_MB): 0 = not set
+inline std::atomic<double> & wired_max_from_mac() { static std::atomic<double> v { 0 }; return v; }
+// The wired ceiling everything on the phone stays under: PA_WIRED_MAX_MB if set, else the Mac's, else 76.5% of this device's
+// RAM, at most 9400 (the 12 GB A19s: iOS killed the app at ~10.4-10.7 GB wired). It used to be 9400 on every device, and the
+// Mac's PHONE_WIRED_MAX_MB never reached the phone (GitHub #14).
 inline double wired_max_mb() {
-    static const double v = getenv("PA_WIRED_MAX_MB") ? atof(getenv("PA_WIRED_MAX_MB")) : 9400;
-    return v;
+    static const double env = getenv("PA_WIRED_MAX_MB") ? atof(getenv("PA_WIRED_MAX_MB")) : 0;
+    if (env > 0) return env;
+    const double mac = wired_max_from_mac().load(std::memory_order_relaxed);
+    if (mac > 0) return mac;
+    static const double def = [] { const double p = phys_mb(); return p > 0 ? std::min(9400.0, p * 0.765) : 9400.0; }();
+    return def;
 }
 
 // optional page engine for the OLDEST keys (the Neural Engine, pa-ane.mm; docs/ANE.md): each layer's keys

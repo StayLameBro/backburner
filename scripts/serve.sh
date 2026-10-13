@@ -114,6 +114,9 @@ if [ "${PHONE:-auto}" != 0 ] && [ -z "${LLAMA_SPLIT_TAIL:-}${PHONE_KV:-}" ]; the
       PHONE_WIRED_MAX_MB=9400
       [ "$PHYS_MB" -gt 0 ] && [ $(( PHYS_MB * 765 / 1000 )) -lt 9400 ] && PHONE_WIRED_MAX_MB=$(( PHYS_MB * 765 / 1000 ))
     fi
+    # the phone keeps to the same ceiling at run time (its ANE pages and held keys; apps before 0.0.5 kept 9400 and ignore this)
+    phone_wired() { printf 'wired %s\n' "$PHONE_WIRED_MAX_MB" | /usr/bin/nc -G 2 -w 2 "$1" 50061 >/dev/null 2>&1; true; }
+    phone_wired "$PIP"
     if [ "$PHYS_MB" -gt 0 ] && [ "${PAVAIL:-0}" -gt $(( PHYS_MB * 74 / 100 )) ]; then
       echo "serve: $PNAME reports a ${PAVAIL} MiB app budget on ${PHYS_MB} MiB of RAM: using $(( PHYS_MB * 74 / 100 )) MiB" >&2
       PAVAIL=$(( PHYS_MB * 74 / 100 ))
@@ -141,7 +144,7 @@ if [ "${PHONE:-auto}" != 0 ] && [ -z "${LLAMA_SPLIT_TAIL:-}${PHONE_KV:-}" ]; the
         s_a=$(( (a2 - PHONE_APP_RESERVE_MB) * 1048576 / REMOTE_BPT / 4096 * 4096 ))
         [ "$s_a" -lt "$s_w" ] && s_w=$s_a
         [ "$s_w" -lt "$SHARE" ] && SHARE=$s_w
-        PHONE_KV=$PHONE_KV,$ip2:50062; NPH=$((NPH + 1))
+        PHONE_KV=$PHONE_KV,$ip2:50062; NPH=$((NPH + 1)); phone_wired "$ip2"
       done <<< "$(tail -n +2 <<< "$PUP")"
       PHONE_CAP=$(( CTX + NPH * SHARE ))
       [ "$PHONE_CAP" -gt 262144 ] && PHONE_CAP=262144
