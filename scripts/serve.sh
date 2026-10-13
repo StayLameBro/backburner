@@ -31,8 +31,17 @@ if [ "$CTX" -gt 65536 ]; then KV=${KV:-q4_0}; else KV=${KV:-q8_0}; fi
 # scripts/split-gguf.py -L N, head kept: no --no-head) runs layers N+ and the output head for every token and returns the logits.
 # The Mac keeps the full GGUF mapped but sends layers N+ and output* to the CPU (-ot), where they stay as never-read file pages,
 # so the GPU maps only [0,N). Needs llama.cpp split decode (LLAMA_SPLIT_DECODE); without it decode still runs every layer on
-# the Mac and pages layers N+ in from the SSD. No speculation (the phone can't rewind its recurrent state), no drafter, no
+# the Mac and pages layers N+ in from the SSD. No speculation (a v2 app can't rewind its recurrent state), no drafter, no
 # checkpoints, no prompt-cache proxy (a saved slot would lack the phone's half), no phone-held KV, SME off. docs/SPLIT-DECODE.md
+# SPLIT_MTP=1 (experimental; needs an app built with tail protocol v3 and llama.cpp split decode v3): MTP self-speculation across
+# the split. The model's own draft head (blk.64 NextN + output, ~1.1 GB) runs on the Mac GPU, the phone verifies k+1 rows per
+# round trip and returns every row's logits plus the h rows the draft head reads; a partial accept rewinds both sides with the
+# GDN replay log (SPLIT_MTP_REPLAY, default k+2). SPLIT_MTP_K drafts per round (default 7); SPLIT_MTP_PMIN stops a draft at the
+# first token the head is less sure of (default 0.6; 0 = always draft k). serve.sh asks the app for its tail protocol first: a v2
+# app gets plain split decode (a warning, no speculation). The draft head costs the Mac ~1.2-1.3 GB more wired memory: at L=20 on
+# an 8 GB Mac, start with little swap and nothing big open. The Mac's file needs output, output_norm and blk.64 stored next to
+# blk.0 (see SPLIT-DECODE.md): with mmap, Metal maps the file from the Mac's first tensor to its last, and in the converter's
+# order that's the whole file.
 SD_ARGS=()
 if [ -n "${SPLIT_DECODE_L:-}" ]; then
   SDL=$SPLIT_DECODE_L
@@ -45,6 +54,46 @@ if [ -n "${SPLIT_DECODE_L:-}" ]; then
     [ "$PTAIL" = 1 ] || { echo "serve: SPLIT_DECODE_L needs the phone's tail (:50060) up: scripts/phone-tail.sh <tail-...-L$SDL-head.gguf>" >&2; exit 1; }
     LLAMA_SPLIT_TAIL=$PIP:50060
   fi
+  if [ "${SPLIT_MTP:-0}" = 1 ]; then
+    # MTP needs tail protocol v3. Ask the app which protocol it runs without touching its mirror: a HELLO with an impossible
+    # state format is refused before the app creates a context, and the refusal names the app's protocol ("phone proto N")
+    # (prints the protocol, or "busy" when the app doesn't answer: it loads the tail model on the first HELLO, which can take
+    # longer than one try on a freshly launched app, and it serves one client at a time)
+    TPROTO=busy
+    for _ in 1 2 3 4 5 6; do
+      TPROTO=$(python3 -c '
+import re, socket, struct, sys
+h, p = sys.argv[1].rsplit(":", 1)
+try:
+    s = socket.create_connection((h, int(p)), timeout=20)
+    s.sendall(struct.pack("<IIQ", 0x4C545053, 1, 32) + struct.pack("<8I", 2, 0xFFFFFFFF, 0, 0, 0, 0, 0, 0))
+    hdr = b""
+    while len(hdr) < 16:
+        c = s.recv(16 - len(hdr))
+        if not c: break
+        hdr += c
+    n = struct.unpack("<IIQ", hdr)[2] if len(hdr) == 16 else 0
+    body = b""
+    while len(body) < n:
+        c = s.recv(n - len(body))
+        if not c: break
+        body += c
+except OSError:
+    print("busy"); sys.exit()
+m = re.search(rb"phone proto (\d+)", body)
+print(m.group(1).decode() if m else "busy")
+' "$LLAMA_SPLIT_TAIL" 2>/dev/null || echo busy)
+      [ "$TPROTO" != busy ] && break
+      sleep 5
+    done
+    if [ "$TPROTO" = busy ]; then
+      echo "serve: SPLIT_MTP=1 but the app's tail didn't answer the protocol check (still loading, or another client is connected). Continuing WITHOUT speculation; restart serve.sh once the app is idle." >&2
+      SPLIT_MTP=0
+    elif [ "$TPROTO" -lt 3 ]; then
+      echo "serve: SPLIT_MTP=1 but the app's tail runs protocol v$TPROTO (MTP needs v3: update the app). Continuing WITHOUT speculation." >&2
+      SPLIT_MTP=0
+    fi
+  fi
   export LLAMA_SPLIT_TAIL LLAMA_SPLIT_L=$SDL LLAMA_SPLIT_DECODE=1
   # keep the Mac GPU clocked up while the phone computes (a trivial dispatch every 1 ms, only during the wait): the A18 Pro
   # otherwise drops its clock in the ~160 ms gap and the next head pass runs slow. Head-only bench, L=20 IQ2_XS, 160 ms gap per
@@ -52,6 +101,18 @@ if [ -n "${SPLIT_DECODE_L:-}" ]; then
   export LLAMA_SPLIT_GPU_WARM_US=${LLAMA_SPLIT_GPU_WARM_US:-1000}
   PHONE=0 PHONE_ANE=0 PHONE_IP=${LLAMA_SPLIT_TAIL%:*}
   LOAD_MODE=mmap SPEC_TYPE=none DRAFT= SPEC_REPLAY=0 CTX_CHECKPOINTS=0 PROXY=0 SME=0 MM_SME=0
+  MTP_ARGS=()
+  if [ "${SPLIT_MTP:-0}" = 1 ]; then
+    MTPK=${SPLIT_MTP_K:-7}
+    case "$MTPK" in ''|*[!0-9]*|0*) echo "serve: SPLIT_MTP_K must be a positive number, got '$MTPK'" >&2; exit 1 ;; esac
+    SPEC_TYPE=draft-mtp SPEC_REPLAY=${SPLIT_MTP_REPLAY:-$((MTPK + 2))}
+    [ "$SPEC_REPLAY" -ge $((MTPK + 1)) ] || { echo "serve: SPLIT_MTP_REPLAY ($SPEC_REPLAY) must be at least SPLIT_MTP_K + 1 ($((MTPK + 1))): the verify chunk must stay in the replay log" >&2; exit 1; }
+    # the draft head on the Mac GPU: these come before the CPU rules below (the first matching -ot wins)
+    MTPPMIN=${SPLIT_MTP_PMIN:-0.6}
+    awk -v p="$MTPPMIN" 'BEGIN { exit !(p ~ /^[0-9]*\.?[0-9]+$/ && p + 0 <= 1) }' ||
+      { echo "serve: SPLIT_MTP_PMIN must be a number from 0 to 1, got '$MTPPMIN'" >&2; exit 1; }
+    MTP_ARGS=(-ot "^blk\.${SPLIT_MTP_LAYER:-64}\.=MTL0" -ot "^output(_norm)?\.=MTL0" --spec-draft-n-max "$MTPK" --spec-draft-p-min "$MTPPMIN")
+  fi
   # layer numbers >= N as a regex (no upper bound, no commas: -ot splits its value on ','); anchored so blk.2. != blk.20.
   digits() { local k; for (( k = 0; k < $1; k++ )); do printf '[0-9]'; done; }
   ge() {   # N itself, every longer number, and per digit: same prefix, a bigger digit, any digits after
@@ -67,8 +128,12 @@ if [ -n "${SPLIT_DECODE_L:-}" ]; then
   # --no-repack: the CPU backend would otherwise read layers N+ at load and keep an anonymous repacked copy (847 MiB at
   # IQ2_XS L=20, measured). The warmup decode goes through the phone like any other batch, so it stays on: it also checks
   # the tail has its head (a head-less tail fails it with "worker returned 0 logits").
-  SD_ARGS=(-ot "^blk\.($(ge "$SDL"))\.=CPU" -ot "^output=CPU" --no-repack)
-  echo "serve: SPLIT DECODE mode ON, L=$SDL: Mac GPU maps layers [0,$SDL), layers $SDL+ and output stay CPU-mapped (never read), phone tail at $LLAMA_SPLIT_TAIL runs the rest + head; spec off, no drafter, no checkpoints, no proxy, SME off" >&2
+  SD_ARGS=(${MTP_ARGS[@]+"${MTP_ARGS[@]}"} -ot "^blk\.($(ge "$SDL"))\.=CPU" -ot "^output=CPU" --no-repack)
+  if [ "${SPLIT_MTP:-0}" = 1 ]; then
+    echo "serve: SPLIT DECODE mode ON, L=$SDL, MTP: Mac GPU maps layers [0,$SDL) + the draft head (blk.${SPLIT_MTP_LAYER:-64} + output), phone tail at $LLAMA_SPLIT_TAIL verifies up to $((MTPK + 1)) rows per round (p-min $MTPPMIN, replay $SPEC_REPLAY); no checkpoints, no proxy, SME off" >&2
+  else
+    echo "serve: SPLIT DECODE mode ON, L=$SDL: Mac GPU maps layers [0,$SDL), layers $SDL+ and output stay CPU-mapped (never read), phone tail at $LLAMA_SPLIT_TAIL runs the rest + head; spec off, no drafter, no checkpoints, no proxy, SME off" >&2
+  fi
   if ! grep -qa LLAMA_SPLIT_DECODE "$B"/llama-server "$B"/*.dylib 2>/dev/null; then
     echo "serve: ************************************************************************************************" >&2
     echo "serve: WARNING: this llama.cpp has NO split decode (LLAMA_SPLIT_DECODE). Decode will NOT be split:" >&2

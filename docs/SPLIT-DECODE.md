@@ -39,6 +39,28 @@ TAIL_WAIT=120 scripts/phone-tail.sh ~/Models/tail-iq2xs-L20-head.gguf           
 
 A head-less tail fails serve.sh's startup warmup: `worker returned 0 logits ... (a head-less tail?)`.
 
+## Speculative decoding over split (`SPLIT_MTP`)
+
+The model's own NextN block (`blk.64`) runs on the Mac as a draft head and the phone verifies several tokens per
+round (tail protocol v3, #24). It needs a v3 app and two one-time changes to the Mac's GGUF:
+
+```bash
+# 1. reorder so the head group (blk.64 + output) sits at the front of the file; an 8 GB Mac OOMs at startup otherwise
+python3 scripts/split-gguf.py ~/Models/Qwen3.8-27B-IQ2_XS.gguf ~/Models/Qwen3.8-27B-IQ2_XS-mac.gguf --reorder-mac
+# 2. requantize the draft head blk.64 from Q4_0 to Q4_K (eh_proj to Q8_0); every other tensor and the ftype stay as they were
+python3 scripts/requant-mtp-head.py ~/Models/Qwen3.8-27B-IQ2_XS-mac.gguf ~/Models/Qwen3.8-27B-IQ2_XS-mtp.gguf
+```
+
+Then launch with `SPLIT_MTP=1`. serve.sh asks the app which protocol it speaks first; a v2 app or no answer stays on
+plain split decode.
+
+```bash
+SPLIT_MTP=1 SPLIT_DECODE_L=20 CTX=16384 MODEL=~/Models/Qwen3.8-27B-IQ2_XS-mtp.gguf scripts/serve.sh
+```
+
+Output is token-identical to plain split decode at temperature 0 (greedy). Roughly +37-45% on an M5 iPad (L=4) and
+~2x on an iPhone Air (L=20) at 512-token replies, k=7, p-min 0.6.
+
 ## Memory (IQ2_XS, L=20, 16k context, q8_0 KV)
 
 | | |
