@@ -90,10 +90,12 @@ public:
     void end_use() override { use_mu_.unlock(); }
 
     // The prefill tail is about to run (Sidecar's tail server, on_work): unload every page model (their compiled dirs stay) so
-    // the tail's weights can be wired again. Waits (<= 3 s) only while wired + need_mb (the tail) would pass the wired ceiling:
+    // the tail's weights can be wired again. A build or reload already running (an on-device ANE compile and load, ~1 s) is
+    // waited for first (<= 3 s): it used to carry on while the tail wired its weights, the two together past the phone's
+    // memory (GitHub #14: A20 Pro, 112k). Then waits (<= 3 s) only while wired + need_mb (the tail) would pass the wired ceiling:
     // the page models' memory is often NOT wired (A19, 2026-09-28: 57 pages loaded, 1.9 GB system wired), and waiting for a
     // drop that never comes cost every prefill the full 3 s. Later calls only note the time. The builder reloads the pages on
-    // the first decode ATTN (wake) or once no work was seen for PA_ANE_RESUME_S (default 8). Keys of suspended pages run on the
+    // the first decode ATTN (wake) or once no work was seen for PA_ANE_RESUME_S (default 30). Keys of suspended pages run on the
     // GPU meanwhile.
     void suspend(double need_mb = 0) {
         {
@@ -106,15 +108,21 @@ public:
         const double w0 = wired_mb();
         {
             std::lock_guard<std::mutex> use(use_mu_);   // an ATTN between ready() and run() finishes first
-            std::lock_guard<std::mutex> lk(mu_);
-            suspended_ = true;
+            std::unique_lock<std::mutex> lk(mu_);
+            suspended_ = true;   // no build starts from here on; one in flight drops its model when it ends (build: "suspended")
+            const auto tb = std::chrono::steady_clock::now();
+            if (!building_.empty()) {
+                cv_.wait_for(lk, std::chrono::seconds(3), [&] { return building_.empty(); });
+                n_suspend_waits_++;
+                suspend_build_wait_ms_ = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tb).count();
+            }
             for (auto & L : slots_) for (auto & x : L) {
                 if (x->state == READY) { x->state = SUSPENDED; x->model = nil; released++; }
             }
             n_loaded_ = 0; n_suspends_++;
         }
         const auto t0 = std::chrono::steady_clock::now();
-        const double ceil_mb = wired_max_mb();   // PA_WIRED_MAX_MB (9400) is already ~1 GB under the kill line
+        const double ceil_mb = wired_max_mb();   // ~1 GB under the kill line (phone-attn.h)
         while (released > 0 && need_mb > 0 && wired_mb() + need_mb > ceil_mb && std::chrono::steady_clock::now() - t0 < std::chrono::seconds(3)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
@@ -264,9 +272,11 @@ public:
                  n_pending(), n_failed_, n_wired_skip_, n_over_budget_, n_shed_, wired_mb(), n_built_ ? build_ms_ / n_built_ : 0.0,
                  n_page_calls_ ? ms_sum_ / n_page_calls_ : 0.0,
                  (unsigned long long) n_calls_, error.empty() ? "" : " | ", error.c_str());
-        char b2[200];
-        snprintf(b2, sizeof b2, " | %s, %d suspends (last freed %.0f MB wired in %.0f ms), %d wakes, %d reloads", suspended_ ? "SUSPENDED" : "active",
-                 n_suspends_, suspend_freed_mb_, suspend_ms_, n_wakes_, n_reloads_);
+        char b2[320];
+        snprintf(b2, sizeof b2, " | %s, %d suspends (last freed %.0f MB wired in %.0f ms; %d waited for a build, last %.0f ms), %d wakes, "
+                 "%d reloads | system free %.0f MB now, lowest at a build %.0f MB, %d builds put off for it | ceiling %.0f MB",
+                 suspended_ ? "SUSPENDED" : "active", n_suspends_, suspend_freed_mb_, suspend_ms_, n_suspend_waits_, suspend_build_wait_ms_,
+                 n_wakes_, n_reloads_, sys_free_mb(), min_sys_free_mb_, n_sysfree_skip_, wired_max_mb());
         char b3[160];
         const int nl = n_built_ + n_reloads_;
         snprintf(b3, sizeof b3, " | build phases: weights %.0f, load %.0f, warm-up %.0f ms/page", n_built_ ? weights_ms_ / n_built_ : 0.0,
@@ -306,6 +316,8 @@ private:
     bool wanting_ = false;
     bool suspended_ = false, wake_ = false;
     int n_wakes_ = 0;
+    int n_suspend_waits_ = 0, n_sysfree_skip_ = 0;
+    double suspend_build_wait_ms_ = 0, min_sys_free_mb_ = 0;
     std::chrono::steady_clock::time_point last_work_, retry_at_;
     std::deque<std::shared_ptr<slot>> deferred_;   // builds / reloads waiting for wired headroom
     double suspend_ms_ = 0, suspend_freed_mb_ = 0;
@@ -362,6 +374,15 @@ private:
         static const size_t reserve = (size_t) (getenv("PA_ANE_RESERVE_MB") ? atoi(getenv("PA_ANE_RESERVE_MB")) : 1024) << 20;
         if (os_proc_available_memory() < model_bytes_ + reserve) { why = "app memory"; return 2; }
 #endif
+        // the compile and load run partly in other processes (ANECompilerService): not while the whole phone is short of memory
+        // (PA_ANE_SYS_FREE_MB, default 256, free + purgeable). The lowest value seen is in describe(), for tuning on devices.
+        {
+            static const double sys_min = getenv("PA_ANE_SYS_FREE_MB") ? atof(getenv("PA_ANE_SYS_FREE_MB")) : 256;
+            const double f = sys_free_mb();
+            std::lock_guard<std::mutex> lk(mu_);
+            if (f > 0 && (min_sys_free_mb_ == 0 || f < min_sys_free_mb_)) min_sys_free_mb_ = f;
+            if (TARGET_OS_IPHONE && f > 0 && f < sys_min) { n_sysfree_skip_++; why = "system memory"; return 2; }
+        }
         // the ANE's model memory is wired (not in the app footprint): stay PA_ANE_WIRED_MARGIN_MB (default 800) under the ceiling,
         // leaving room for the KV still to come
         static const double margin = getenv("PA_ANE_WIRED_MARGIN_MB") ? atof(getenv("PA_ANE_WIRED_MARGIN_MB")) : 800;
@@ -435,7 +456,9 @@ private:
         // background work: never in the way of ATTN. PA_ANE_BUILD_QOS=1: user-initiated (P cores; builds finish sooner)
         static const bool fast = getenv("PA_ANE_BUILD_QOS") && atoi(getenv("PA_ANE_BUILD_QOS"));
         pthread_set_qos_class_self_np(fast ? QOS_CLASS_USER_INITIATED : QOS_CLASS_UTILITY, 0);
-        static const double resume_s = getenv("PA_ANE_RESUME_S") ? atof(getenv("PA_ANE_RESUME_S")) : 8;
+        // 30 s (was 8): a long prompt arrives as batches with gaps between them, and reloading every page in a gap only to unload
+        // them for the next batch was a load storm meeting the tail's wiring (#14). Decoding wakes them at once anyway (wake()).
+        static const double resume_s = getenv("PA_ANE_RESUME_S") ? atof(getenv("PA_ANE_RESUME_S")) : 30;
         for (;;) {
             std::shared_ptr<slot> s;
             {
