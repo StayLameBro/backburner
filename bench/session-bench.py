@@ -18,6 +18,7 @@ iPhone's thermal state and app memory. Rows: bench/results/session.jsonl.
   bench/session-bench.py --config stock|fork-mac|fork-phone
 """
 import argparse, glob, json, os, re, statistics, subprocess, sys, threading, time, urllib.request
+from scrub import scrub
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL = os.path.expanduser('~/Models/Qwen3.8-27B-IQ4_XS.gguf')
@@ -178,6 +179,7 @@ try:
         if 'split prefill on' not in phone or not m:
             sys.exit(f'fork-phone: the phone is not in use: {phone!r}')
         phone_ip = m.group(1)
+    phone = scrub(phone)   # rows keep no address; phone_ip is only for the live samples
 
     fx = json.load(open(f'{ROOT}/bench/omp-request.json'))
     notes = ''.join(open(f, errors='replace').read() for f in sorted(glob.glob(f'{ROOT}/llama.cpp/docs/*.md')))[:a.notes_chars]

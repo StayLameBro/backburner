@@ -201,6 +201,8 @@ def mask(line, span):
 
 
 def scan_line(where, line):
+    # JSON lines (bench/results/*.jsonl) store the apostrophes as \u2019 / \u0027 escapes: undo them so device names still match
+    line = line.replace("\\u2019", "\u2019").replace("\\u0027", "'")
     exempt = "sensitive-ok" in line
     hit = private_hit(line)
     if hit:

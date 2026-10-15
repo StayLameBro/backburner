@@ -16,7 +16,8 @@ settings, the run's run_id and the prompt's sha256. bench/results/results.jsonl 
   bench/launch-bench.py --config fork-mac
   bench/launch-bench.py --config fork-phone
 """
-import argparse, hashlib, json, os, platform, subprocess, sys, time, urllib.request
+import argparse, hashlib, json, os, subprocess, sys, time, urllib.request
+from scrub import mac_name, scrub
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL = os.path.expanduser('~/Models/Qwen3.8-27B-IQ4_XS.gguf')
@@ -107,8 +108,9 @@ try:
         phone = next((l.strip() for l in open(log_path) if 'serve:' in l), '')
         if 'split prefill on' not in phone:
             sys.exit(f'fork-phone: the phone is not in use: {phone!r}')
+    phone = scrub(phone)
     say('server up', phone)
-    base = dict(version=version, model=os.path.basename(MODEL), kv='q8_0', ctx=a.ctx, mac=platform.node(),
+    base = dict(version=version, model=os.path.basename(MODEL), kv='q8_0', ctx=a.ctx, mac=mac_name(),
                 phone=phone)
 
     # ---- prompt tokens: the pinned prompt file

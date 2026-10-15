@@ -10,6 +10,7 @@ answer speed, and the whole session's wall time. Rows go to bench/results/agent.
   bench/agent-bench.py --config stock|fork-mac|fork-phone
 """
 import argparse, glob, json, os, subprocess, sys, time, urllib.request
+from scrub import scrub
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL = os.path.expanduser('~/Models/Qwen3.8-27B-IQ4_XS.gguf')
@@ -71,7 +72,7 @@ try:
         if srv.poll() is not None:
             sys.exit(f'server exited, see {log_path}')
         time.sleep(1)
-    phone = next((l.strip() for l in open(log_path) if 'serve:' in l), '') if not a.config.startswith('stock') else ''
+    phone = scrub(next((l.strip() for l in open(log_path) if 'serve:' in l), '')) if not a.config.startswith('stock') else ''
     if a.config == 'fork-phone' and 'split prefill on' not in phone:
         sys.exit(f'fork-phone: the phone is not in use: {phone!r}')
 
