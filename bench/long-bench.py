@@ -8,6 +8,7 @@ appends to --max tokens (prefill speed at each depth). Then the model is asked f
   bench/long-bench.py --max 131072
 """
 import argparse, glob, json, os, subprocess, sys, time, urllib.request
+from scrub import scrub
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # three facts at different depths: at 128k with the phone, the first two sit in the part the phone holds (the oldest 64k)
@@ -59,7 +60,7 @@ try:
         if srv.poll() is not None:
             sys.exit(f'server exited, see {log_path}')
         time.sleep(1)
-    phone = next((l.strip() for l in open(log_path) if 'serve:' in l), '')
+    phone = scrub(next((l.strip() for l in open(log_path) if 'serve:' in l), ''))
     say('server up', phone)
     if a.config == 'phone' and 'remote KV on' not in phone:
         sys.exit('the phone is not holding KV: ' + phone)
