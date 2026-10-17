@@ -62,6 +62,39 @@ ln -s "$US/zebulon/secret" link; git add link
 git commit -qm link >/dev/null 2>&1 && { bad "a symlink out of the repo was committed"; git reset -q --hard HEAD~1; } || ok
 git reset -q; rm -f link
 
+expect_block "a lowercase device name" i2.md "zeb$(printf "%s" "'")s iphone"
+expect_block "an accented device name" i3.md "Jos$(printf '\303\251')$(printf "%s" "'")s iPad"
+expect_block "an Apple Watch name"   i4.md "Zeb$(printf "%s" "'")s Apple Watch"
+expect_block "a Mac host name"       i5.md "host: Zeb""s-MacBook-Pro"
+
+# --private-add-devices: devicectl's JSON (the new "properties" layout and the deprecated one) and this Mac's scutil names,
+# from fixtures. A device or Mac with a generic name ("iPhone", "MacBook Neo") must not be fingerprinted
+UD="0000""8150-00AA11BB22CC33DD"; UD2="0000""8142-00AA11BB22CC33EE"
+cat > "$T/devices.json" <<JSON
+{"result": {"devices": [
+ {"identifier": "D19CB2CF-1111-2222-3333-444455556666", "properties": {"state": {"name": "zebphone"},
+  "hardware": {"udid": "$UD", "serialNumber": "QX7ZEBSERIAL", "ecid": 1234567890123}}},
+ {"identifier": "CC7E2890-1111-2222-3333-444455556666", "deviceProperties": {"name": "Quarry Tablet"},
+  "hardwareProperties": {"udid": "$UD2", "serialNumber": "QX7ZEBSER2"}},
+ {"identifier": "AB000000-1111-2222-3333-444455556666", "properties": {"state": {"name": "iPhone"}, "hardware": {}}}
+]}}
+JSON
+BB_DEVICECTL_JSON="$T/devices.json" BB_MAC_NAMES="$(printf 'MacBook Neo\nZebs-MacBook-Neo\n')" \
+  python3 scripts/hooks/check-sensitive.py --private-add-devices >/dev/null || bad "--private-add-devices"
+grep -qi 'zebphone\|quarry\|QX7ZEB' "$PRIV" && bad "private-hashes holds a device name in plain text" || ok
+expect_block "a paired device's name"        dv1.md "plugged in zebphone"
+expect_block "its CoreDevice host name"      dv2.md "zebphone.coredevice.local"
+expect_block "its CoreDevice id host name"   dv3.md "d19cb2cf-1111-2222-3333-444455556666.coredevice.local"
+expect_block "its serial number"             dv4.md "serial QX7ZEBSERIAL"
+expect_block "its ECID"                      dv5.md "ECID 0x$(printf '%x' 1234567890123)"
+expect_block "an old-layout device's name"   dv6.md "the Quarry Tablet tail"
+expect_block "this Mac's host name"          dv7.md "ssh zebs-macbook-neo.local"
+printf '%s\n' "the iPhone tail" "MacBook Neo results" > dv8.md
+git add dv8.md && git commit -qm "generic names" >/dev/null 2>&1 && ok || bad "a generic device name was fingerprinted"
+printf '{"result": {"devices": [{"identifier": "X", "properties": {"hardware": {}}}]}}' > "$T/nonames.json"
+BB_DEVICECTL_JSON="$T/nonames.json" BB_MAC_NAMES="" python3 scripts/hooks/check-sensitive.py --private-add-devices >/dev/null 2>&1 \
+  && bad "devices without names were accepted silently" || ok
+
 # allowed forms
 printf '%s\n' "phone at 169.254.x.y (sensitive-ok: placeholder)" "cd ~/Projects" "ping 169.254.255.255" "mail noreply@""example.com" > ok.md
 git add ok.md && git commit -qm "placeholders" >/dev/null 2>&1 && ok || bad "placeholders and ~ paths are allowed"

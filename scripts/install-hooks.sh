@@ -22,6 +22,11 @@ if [ -f "$(git rev-parse --git-common-dir)/info/private-patterns" ]; then
   python3 "$HOOKS/check-sensitive.py" --private-migrate   # an old plain-text list becomes fingerprints
 fi
 echo "install-hooks: pre-commit, commit-msg, pre-push installed in $HOOKS"
+if [ "$(uname)" = Darwin ] && [ -t 1 ]; then
+  echo "install-hooks: fingerprinting this Mac's names and your paired iPhones / iPads (devicectl: up to ~30 s the first time)"
+  python3 "$HOOKS/check-sensitive.py" --private-add-devices || echo "install-hooks: that failed; run it later (below)"
+fi
 echo "install-hooks: add your private strings (name, emails, team id, device ids) with:"
 echo "  python3 scripts/hooks/check-sensitive.py --private-add"
+echo "  and after pairing a new iPhone / iPad: python3 scripts/hooks/check-sensitive.py --private-add-devices"
 echo "  They are kept only as fingerprints in .git/info/private-hashes; the key is in your Keychain."
