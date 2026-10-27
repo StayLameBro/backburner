@@ -19,7 +19,8 @@ scripts/install-hooks.sh >/dev/null || bad "install-hooks"
 export BB_PRIVATE_KEY_HEX=$(printf '11%.0s' {1..32})
 printf 'Zebulon Quarry\nquarry@mail.invalid\n' | python3 scripts/hooks/check-sensitive.py --private-add >/dev/null
 PRIV="$(git rev-parse --git-common-dir)/info/private-hashes"
-[ -f "$PRIV" ] && [ "$(stat -f %Lp "$PRIV")" = 600 ] && ok || bad "private-hashes created 600"
+mode() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }   # GNU stat (Linux CI), else BSD stat (macOS)
+[ -f "$PRIV" ] && [ "$(mode "$PRIV")" = 600 ] && ok || bad "private-hashes created 600"
 grep -qi 'zebulon\|quarry' "$PRIV" && bad "private-hashes holds plain text" || ok
 [ "$(wc -l < "$PRIV" | tr -d ' ')" = 2 ] && ok || bad "two fingerprints stored"
 echo "hello" > README && git add README && git commit -qm "first" && ok || bad "a clean commit is allowed"
@@ -43,6 +44,8 @@ expect_block "a home path"           f.sh  "cd $US/zebulon/Projects"
 expect_block "a device UDID"         g.md  "UDID=0000""8140-0123456789ABCDEF"
 expect_block "a team id"             h.txt "DEVELOPMENT_TEAM = ""ABCDE12345"
 expect_block "a device name"         i.md  "Zeb$(printf "%s" "'")s iPhone is plugged in"
+expect_block "a device name in JSON (escaped curly apostrophe)" r1.jsonl "{\"phone\": \"Zeb\\""u2019s iPhone\"}"
+expect_block "a device name in JSON (escaped apostrophe)" r2.jsonl "{\"phone\": \"Zeb\\""u0027s iPad\"}"
 expect_block "a personal email"      j.md  "mail zeb@""personal-mail.net"
 expect_block "a LAN address"         k.md  "phone at 192.168.""1.15"
 expect_block "a link-local address"  l.md  "phone at 169.254.""1.3"

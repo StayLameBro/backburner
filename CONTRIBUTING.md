@@ -33,8 +33,9 @@ before you spend time on it.
 ## Before your first commit
 
 Run `scripts/install-hooks.sh` once. It installs checks that refuse commits containing secrets, personal paths, device ids,
-personal emails, model or binary files, and commits made with a non-noreply email. Put anything else private (your name,
-your devices' ids) in `.git/info/private-patterns`, which is never committed. Don't bypass the checks with `--no-verify`.
+personal emails, model or binary files, and commits made with a non-noreply email. Add anything else private (your name,
+your devices' names and ids) with `python3 scripts/hooks/check-sensitive.py --private-add`: it keeps only keyed fingerprints
+in `.git/info/private-hashes`, never the strings. Don't bypass the checks with `--no-verify`.
 
 ## Sign-off
 
