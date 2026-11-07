@@ -84,14 +84,14 @@ def splice(src: str, scratch: str, out: str, arch: str, pin_names: set[str]) -> 
 def verify(src: str, out: str, pins: dict[str, str]) -> None:
     rs = gguf.GGUFReader(src)
     ro = gguf.GGUFReader(out)
-    src_b = {t.name: t.data.tobytes() for t in rs.tensors}
+    src_t = {t.name: t for t in rs.tensors}
     bad = []
     for t in ro.tensors:
         if t.name in pins:
             exp = gguf.GGMLQuantizationType[pins[t.name].upper()]
             if t.tensor_type != exp:
                 bad.append(f"{t.name}: type {t.tensor_type.name} != {exp.name}")
-        elif t.data.tobytes() != src_b.get(t.name):
+        elif t.name not in src_t or t.data.tobytes() != src_t[t.name].data.tobytes():
             bad.append(f"{t.name}: bytes changed (should be untouched)")
     if [t.name for t in ro.tensors] != [t.name for t in rs.tensors]:
         bad.append("tensor order or set changed")
