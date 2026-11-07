@@ -10,11 +10,12 @@ hooks (pre-commit, commit-msg, pre-push) by scripts/install-hooks.sh; tests: tes
 What it refuses (exit 1, with file:line and the rule; the matched text is masked):
   secret        private keys, GitHub / Hugging Face / Anthropic / OpenAI / AWS / Slack / Google tokens, password assignments
   private       your own private strings (name, emails, team id, UDIDs, ...), kept only as keyed fingerprints in
-                .git/info/private-hashes with the key in your Keychain: add them with --private-add
+                .git/info/private-hashes with the key in your Keychain: add them with --private-add, and this Mac's names
+                plus every paired iPhone / iPad's name, UDID, serial and ECID with --private-add-devices
   home-path     /Users/<name>/ or /home/<name>/ (use ~ or $HOME)
   device-id     Apple device UDIDs / USB serials (00008xxx-...)
   team-id       a filled-in DEVELOPMENT_TEAM, or a bundle id with a team id appended
-  device-name   "<name>'s iPhone / iPad / MacBook"
+  device-name   "<name>'s iPhone / iPad / MacBook / Apple Watch ..." (any case), or a Mac host name ("<Name>s-MacBook-Pro")
   email         any address except GitHub noreply, example.com/.org/.net, the .example/.invalid/.test TLDs, noreply@
                 and localhost
   private-ip    a concrete LAN / link-local address (192.168.x.y, 10.x.y.z, 172.16-31.x.y, 169.254.x.y); write 169.254.x.y
@@ -28,7 +29,7 @@ onto main would otherwise be refused for history from before these rules or for 
 A line containing "sensitive-ok" is exempt from home-path, email, private-ip and device-name (say why on that line);
 nothing exempts secret, private, device-id or team-id. Bypassing the hooks (--no-verify) defeats all of this: don't.
 """
-import os, re, subprocess, sys
+import json, os, re, subprocess, sys
 
 MAX_BYTES = 5 * 1024 * 1024
 
@@ -55,7 +56,8 @@ HOME = rx(r"(/Users|/home)/(?!(you|me|user|USER|runner|Shared|name|NAME|example|
 DEVICE_ID = [rx(r"\b0000", r"[0-9A-F]{4}-[0-9A-F]{16}\b"), rx(r"\b0000", r"8[0-9A-F]{3}[0-9A-F]{16}\b")]
 TEAM = [rx(r"DEVELOPMENT_TEAM\s*=\s*\"?", r"[A-Z0-9]{10}\b"), rx(r"\bapp\.backburner\.", r"[A-Z0-9]{10}\b"),
         rx(r"\bTeamIdentifier\b")]
-DEVICE_NAME = rx(r"[A-Za-z]+(['’])s (iPhone|iPad|MacBook|Mac mini|iMac|Mac Studio)\b")
+DEVICE_NAME = [rx(r"[^\W\d_]+['’]s (?i:iPhone|iPad|iPod|MacBook|Mac mini|iMac|Mac Studio|Mac Pro|Apple Watch|Apple Vision Pro)\b"),
+               rx(r"\b[A-Z][a-z]+s-(iPhone|iPad|MacBook|Mac-mini|iMac|Mac-Studio|Mac-Pro)\b")]
 EMAIL = rx(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
 EMAIL_OK = rx(r"^(.*@users\.noreply\.github\.com|.*@example\.(com|org|net)|.*\.(example|invalid|test)|noreply@.*|git@github\.com|.*@localhost)$",
               flags=re.I)
@@ -78,6 +80,7 @@ def git(*a, input=None):
 # "backburner-private-patterns"), so the file alone reveals nothing: no names, emails or ids, only fingerprints. Scanning
 # fingerprints every token of a line (and its pieces split at . @ _ + - %, and runs of up to 4 tokens) and compares.
 #   check-sensitive.py --private-add      add strings (typed or piped, one per line; never echoed or stored in plain text)
+#   check-sensitive.py --private-add-devices   add this Mac's names and every paired iPhone / iPad's name and ids
 #   check-sensitive.py --private-count    how many fingerprints there are
 KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT = "backburner-private-patterns", "hmac-key"
 TOKEN = re.compile(r"[a-z0-9@._+%-]+")
@@ -148,7 +151,7 @@ def private_hit(text):
     toks = [(m.group(0), m.start(), m.end()) for m in TOKEN.finditer(low)]
     single = PRIV.get(1, set())
     for t, a, b in toks:
-        cands = {t, t.strip("._-%+@")} | {m.group(0) for m in PIECE.finditer(t)}
+        cands = {t, t.strip("._-%+@")} | {m.group(0) for m in PIECE.finditer(t)} | set(re.split(r"[.@_+%]", t))
         if any(fingerprint(PRIV_KEY, [c]) in single for c in cands):
             return (a, b)
     # multi-token strings ("first last"): compare runs of plain pieces
@@ -170,7 +173,7 @@ def entry_tokens(text):
     return t if len(t) == 1 else PIECE.findall(low)
 
 
-def private_add(lines):
+def private_add(lines, quiet=False):
     key = private_key(create=True)
     path = os.path.join(git_dir(), "info", "private-hashes")
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -189,7 +192,67 @@ def private_add(lines):
             os.write(fd, (rec + "\n").encode()); have.add(rec); added += 1
     os.close(fd)
     os.chmod(path, 0o600)
-    print(f"check-sensitive: {added} fingerprint(s) added ({len(have)} in total) in {path}")
+    if not quiet:
+        print(f"check-sensitive: {added} fingerprint(s) added ({len(have)} in total) in {path}")
+    return added
+
+
+# names nobody owns: a Mac or phone still called "iPhone" or "MacBook Neo" must not make every commit that says so fail
+GENERIC = {"iphone", "ipad", "ipod", "mac", "macbook", "imac", "mini", "studio", "air", "pro", "max", "plus", "neo", "apple",
+           "watch", "vision", "tv", "s", "e", "local", "localhost"}
+
+
+def generic(name):
+    pieces = PIECE.findall(normalize(name))
+    return all(p in GENERIC or p.isdigit() for p in pieces)
+
+
+def device_strings():
+    """this Mac's names (scutil) and, from `xcrun devicectl list devices`, each paired device's name, CoreDevice id, UDID,
+    serial number and ECID. Exits 1 when devicectl lists devices but none of the known fields hold their names"""
+    out = []
+    mac = os.environ.get("BB_MAC_NAMES")   # tests only, like BB_PRIVATE_KEY_HEX
+    if mac is not None:
+        out += mac.splitlines()
+    else:
+        for k in ("ComputerName", "LocalHostName", "HostName"):
+            try:
+                r = subprocess.run(["scutil", "--get", k], capture_output=True, text=True, timeout=10)
+                if r.returncode == 0:
+                    out.append(r.stdout.strip())
+            except (OSError, subprocess.SubprocessError):
+                pass
+    js = os.environ.get("BB_DEVICECTL_JSON")   # tests only
+    if js is None:
+        import tempfile
+        fd, js = tempfile.mkstemp(suffix=".json"); os.close(fd)
+        try:
+            # a cold CoreDevice takes ~30 s to answer, a warm one ~0.3 s
+            subprocess.run(["xcrun", "devicectl", "list", "devices", "--timeout", "30", "--json-output", js, "-q"],
+                           capture_output=True, timeout=60)
+            data = json.load(open(js))
+        except (OSError, subprocess.SubprocessError, ValueError):
+            data = None
+        finally:
+            os.remove(js)
+        if data is None:
+            print("check-sensitive: devicectl gave no device list (no Xcode?); only this Mac's names were added", file=sys.stderr)
+    else:
+        data = json.load(open(js))
+    devs = (data or {}).get("result", {}).get("devices", [])
+    named = 0
+    for d in devs:
+        p = d.get("properties") or {}
+        hw = p.get("hardware") or d.get("hardwareProperties") or {}
+        name = (p.get("state") or {}).get("name") or (d.get("deviceProperties") or {}).get("name")
+        named += bool(name)
+        out += [name, d.get("identifier"), hw.get("udid"), hw.get("serialNumber")]
+        if isinstance(hw.get("ecid"), int):
+            out += [str(hw["ecid"]), f"{hw['ecid']:x}", f"0x{hw['ecid']:x}"]
+    if devs and not named:
+        sys.exit("check-sensitive: devicectl no longer reports device names where this script looks (properties.state.name, "
+                 "deviceProperties.name); nothing was added. Update device_strings() in check-sensitive.py")
+    return [s for s in out if isinstance(s, str) and s.strip() and not generic(s)], len(devs)
 
 
 problems = []
@@ -225,9 +288,10 @@ def scan_line(where, line):
     m = HOME.search(line)
     if m:
         problems.append((where, "home-path", mask(line, m.span()))); return
-    m = DEVICE_NAME.search(line)
-    if m:
-        problems.append((where, "device-name", mask(line, m.span()))); return
+    for r in DEVICE_NAME:
+        m = r.search(line)
+        if m:
+            problems.append((where, "device-name", mask(line, m.span()))); return
     for m in EMAIL.finditer(line):
         if not EMAIL_OK.search(m.group(0)):
             problems.append((where, "email", mask(line, m.span()))); return
@@ -422,6 +486,12 @@ def main():
             f.write(b"\0" * os.path.getsize(old)); f.flush(); os.fsync(f.fileno())
         os.remove(old)
         print("check-sensitive: the plain-text file was overwritten and deleted")
+        return
+    elif a[:1] == ["--private-add-devices"]:
+        strings, n_dev = device_strings()
+        added = private_add(strings, quiet=True)
+        if "--quiet" not in a:
+            print(f"check-sensitive: {n_dev} paired device(s) and this Mac: {added} new fingerprint(s)")
         return
     elif a[:1] == ["--private-count"]:
         print(sum(len(v) for v in PRIV.values()), "private fingerprints;", "checking" if PRIV else "not checking")
