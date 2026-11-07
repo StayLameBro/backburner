@@ -1,12 +1,25 @@
 #!/usr/bin/env python3
-"""Write the TAIL of a qwen35 GGUF for split prefill: decoder layers [L, n_trunk) renumbered to
+"""Two jobs for a qwen35 GGUF under split decode.
+
+TAIL (default): write the tail for the phone/iPad — decoder layers [L, n_trunk) renumbered to
 [0, n_trunk-L), plus output_norm / output / token_embd (the loader requires token_embd, and tied-output
 models use it as the lm_head). The NextN/MTP block(s) are dropped by default (the tail never decodes).
-
 The HEAD is not written: the Mac runs the full GGUF with llama_set_layer_range(ctx, 0, L), which shares
 the weight pages with the decode context.
 
-usage: split-gguf.py IN.gguf OUT.gguf -L 48 [--keep-mtp]
+  split-gguf.py IN.gguf OUT.gguf -L 48 [--keep-mtp]
+
+MAC REORDER (--reorder-mac): rewrite the FULL GGUF for the Mac with the tensors reordered to
+output_norm, output, blk.<NextN>, blk.0..N-1, token_embd. Same tensors, same metadata, new layout.
+Under split decode with MTP the Mac keeps blk.<NextN> (the draft head) and output; with mmap,
+llama-model.cpp wraps each device's tensors in one Metal buffer spanning that device's first tensor
+in the file to its last. In converter order output sits near the start and blk.64 at the very end, so
+the Mac's buffer covers the whole file and an 8 GB Mac OOMs at startup. This order puts the head group
+(output_norm, output, blk.64) contiguous at the front, so the Mac buffer is 1.52 GiB at L=4 / 3.24 GiB
+at L=20 instead of the whole 8.5 GiB. No tensor bytes change (~47 s, another ~8.5 GiB of disk once).
+
+  split-gguf.py IN.gguf OUT.gguf --reorder-mac
+
 run with a python3 that has numpy
 """
 from __future__ import annotations
@@ -22,11 +35,69 @@ import gguf  # noqa: E402
 BLK = re.compile(r"^blk\.(\d+)\.(.+)$")
 
 
+def reorder_mac(r: "gguf.GGUFReader", dst: str, arch: str, n_trunk: int) -> None:
+    """Write the full model with tensors in Mac-contiguous order; KV and tensor bytes unchanged."""
+    w = gguf.GGUFWriter(dst, arch)
+    for f in r.fields.values():
+        if f.name == gguf.Keys.General.ARCHITECTURE or f.name.startswith("GGUF."):
+            continue
+        val_type = f.types[0]
+        sub_type = f.types[-1] if val_type == gguf.GGUFValueType.ARRAY else None
+        w.add_key_value(f.name, f.contents(), val_type, sub_type=sub_type)
+
+    out_norm, out_w, tok_embd, other = [], [], [], []
+    nextn: dict[int, list] = {}
+    trunk: dict[int, list] = {}
+    for t in r.tensors:
+        m = BLK.match(t.name)
+        if m:
+            il = int(m.group(1))
+            (nextn if il >= n_trunk else trunk).setdefault(il, []).append(t)
+        elif t.name.startswith("output_norm"):
+            out_norm.append(t)
+        elif t.name == "output.weight":
+            out_w.append(t)
+        elif t.name == "token_embd.weight":
+            tok_embd.append(t)
+        else:
+            other.append(t)
+
+    ordered: list = []
+    ordered += out_norm                                   # output_norm first
+    ordered += out_w                                      # then output (lm_head), if present
+    for il in sorted(nextn):                              # the NextN/MTP block(s): blk.64 ...
+        ordered += nextn[il]
+    for il in sorted(trunk):                              # the trunk: blk.0 .. blk.(n_trunk-1)
+        ordered += trunk[il]
+    ordered += other                                      # anything unclassified, before token_embd
+    ordered += tok_embd                                   # token_embd last (keeps the head group at the front)
+
+    if len(ordered) != len(r.tensors):
+        sys.exit(f"reorder dropped/added tensors: {len(ordered)} vs {len(r.tensors)}")
+
+    total = 0
+    for t in ordered:
+        w.add_tensor_info(t.name, t.data.shape, t.data.dtype, t.data.nbytes, t.tensor_type)
+        total += t.n_bytes
+    w.write_header_to_file()
+    w.write_kv_data_to_file()
+    w.write_ti_data_to_file()
+    for t in ordered:
+        w.write_tensor_data(t.data, tensor_endianess=r.endianess)
+    w.close()
+    head = ", ".join(t.name for t in (out_norm + out_w)) or "(none)"
+    print(f"{dst}: reordered {len(ordered)} tensors, {total / 1e9:.2f} GB. "
+          f"head group first ({head}), token_embd last.")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("src")
     ap.add_argument("dst")
-    ap.add_argument("-L", type=int, required=True, help="first tail layer (multiple of full_attention_interval)")
+    ap.add_argument("-L", type=int, help="first tail layer (multiple of full_attention_interval); required unless --reorder-mac")
+    ap.add_argument("--reorder-mac", action="store_true",
+                    help="rewrite the FULL model reordered for the Mac (output_norm, output, blk.<NextN>, blk.0..N-1, "
+                         "token_embd) so an 8 GB Mac doesn't OOM under split decode + MTP. Ignores the tail flags.")
     ap.add_argument("--keep-mtp", action="store_true", help="keep the NextN/MTP block(s) (renumbered after the tail trunk)")
     ap.add_argument("--no-head", action="store_true",
                     help="drop token_embd and output (1.1 GB on the 27B): the worker gets residuals, never tokens, and the "
@@ -47,6 +118,16 @@ def main() -> None:
     f_nextn = r.get_field(kv("nextn_predict_layers"))
     n_nextn = f_nextn.contents() if f_nextn else 0
     n_trunk = n_all - n_nextn
+
+    if args.reorder_mac:
+        if args.L is not None or args.keep_mtp or args.no_head or args.no_ffn or args.no_ffn_first:
+            sys.exit("--reorder-mac writes the full model; don't combine it with -L or the tail flags")
+        reorder_mac(r, args.dst, arch, n_trunk)
+        return
+
+    if args.L is None:
+        sys.exit("-L is required for the tail (or pass --reorder-mac to rewrite the Mac file)")
+
     f_int = r.get_field(kv("full_attention_interval"))
     interval = f_int.contents() if f_int else 4
     L = args.L
